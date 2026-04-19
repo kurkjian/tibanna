@@ -7,6 +7,9 @@ pub enum Token {
     CloseParen,
     Int(usize),
     Semi,
+    Let,
+    Ident(String),
+    Equal,
 }
 
 struct Lexer<'a> {
@@ -35,7 +38,8 @@ impl<'a> Lexer<'a> {
 
                 match str_buffer.as_str() {
                     "exit" => tokens.push(Token::Exit),
-                    _ => return Err(anyhow::anyhow!("Unknown token: {}", str_buffer)),
+                    "let" => tokens.push(Token::Let),
+                    _ => tokens.push(Token::Ident(str_buffer.clone())),
                 }
             } else if char.is_ascii_digit() {
                 str_buffer.push(iter.next().unwrap());
@@ -55,6 +59,11 @@ impl<'a> Lexer<'a> {
                 iter.next();
             } else if *char == ';' {
                 tokens.push(Token::Semi);
+                iter.next();
+            } else if *char == '=' {
+                tokens.push(Token::Equal);
+                iter.next();
+            } else if char.is_whitespace() {
                 iter.next();
             } else {
                 return Err(anyhow::anyhow!("Unknown token: {}", char));
@@ -102,6 +111,24 @@ mod tests {
                 Token::OpenParen,
                 Token::Int(69),
                 Token::CloseParen,
+                Token::Semi
+            ]
+        );
+    }
+
+    #[test]
+    fn test_let_assignment() {
+        let input = "let x = 420;";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Let,
+                Token::Ident("x".to_string()),
+                Token::Equal,
+                Token::Int(420),
                 Token::Semi
             ]
         );
