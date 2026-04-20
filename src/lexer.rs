@@ -12,7 +12,7 @@ pub enum Token {
     Equal,
 }
 
-struct Lexer<'a> {
+pub struct Lexer<'a> {
     text: &'a str,
 }
 

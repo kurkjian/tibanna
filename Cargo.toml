@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 anyhow = { version = "1" }
+strum = { version = "0" }
+strum_macros = { version = "0" }

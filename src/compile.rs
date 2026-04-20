@@ -13,21 +13,24 @@ enum VariableLocation {
     Offset(usize),
 }
 
-struct Compiler {
+pub struct Compiler {
     stack_offset: usize,
 }
+
 impl Compiler {
     pub fn new() -> Self {
         Self { stack_offset: 0 }
     }
 
-    pub fn compile(&mut self, program: Program) {
+    pub fn compile(&mut self, program: Program) -> Vec<Instruction> {
         let mut instructions = Vec::new();
         let mut identifiers = HashMap::new();
 
         for stmt in program.statements {
             self.compile_statement(stmt, &mut instructions, &mut identifiers);
         }
+
+        instructions
     }
 
     fn compile_statement(
@@ -42,7 +45,7 @@ impl Compiler {
                     ExpressionVariant::Identifier(name) => {
                         let loc = identifiers
                             .get(&name)
-                            .expect("Undeclared identifier: {name:?}");
+                            .expect(&format!("Undeclared identifier: {name:?}"));
                         let mem_ref = match loc {
                             VariableLocation::Offset(offset) => MemRef {
                                 reg: Reg::Rsp,
@@ -51,18 +54,18 @@ impl Compiler {
                         };
 
                         instructions
-                            .push(Instruction::Mov(Mov::ToReg(Reg::Rax, Arg64::Mem(mem_ref))));
+                            .push(Instruction::Mov(Mov::ToReg(Reg::Rdi, Arg64::Mem(mem_ref))));
                     }
                     ExpressionVariant::IntLit(value) => {
                         instructions.push(Instruction::Mov(Mov::ToReg(
-                            Reg::Rax,
+                            Reg::Rdi,
                             Arg64::Unsigned(value),
                         )));
                     }
                 }
 
                 instructions.push(Instruction::Mov(Mov::ToReg(
-                    Reg::Rdi,
+                    Reg::Rax,
                     Arg64::Unsigned(EXIT_SYSCALL),
                 )));
                 instructions.push(Instruction::Syscall);
@@ -72,7 +75,7 @@ impl Compiler {
                     ExpressionVariant::Identifier(name) => {
                         let loc = identifiers
                             .get(&name)
-                            .expect("Undeclared identifier: {name:?}");
+                            .expect(&format!("Undeclared identifier: {name:?}"));
                         let offset = match loc {
                             VariableLocation::Offset(offset) => *offset,
                             _ => unreachable!(), // FIXME: eventually var loc should be either a reg or a stack offset
@@ -81,6 +84,9 @@ impl Compiler {
                             reg: Reg::Rsp,
                             offset,
                         };
+                        identifiers.insert(ident.name, VariableLocation::Offset(self.stack_offset));
+                        self.stack_offset += 8;
+
                         Arg64::Mem(mem_ref)
                     }
                     ExpressionVariant::IntLit(value) => {
