@@ -4,6 +4,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     path::Path,
+    process::Command,
 };
 use tibanna::{
     compile::Compiler,
@@ -37,6 +38,8 @@ fn main() -> Result<()> {
         .flush()
         .map_err(|e| anyhow!(format!("Could not flush file: {}", e)))?;
 
+    link()?;
+
     Ok(())
 }
 
@@ -67,5 +70,25 @@ _start:
             .as_bytes(),
         )
         .map_err(|e| anyhow!(format!("Could not write to file: {}", e)))?;
+    Ok(())
+}
+
+fn link() -> Result<()> {
+    let _nasm = Command::new("nasm")
+        .arg("-f")
+        .arg("elf64")
+        .arg("-o")
+        .arg("out.o")
+        .arg("out.s")
+        .output()
+        .map_err(|e| anyhow!(format!("nasm err: {e:?}")))?;
+
+    let _ld = Command::new("ld")
+        .arg("-o")
+        .arg("out")
+        .arg("out.o")
+        .output()
+        .map_err(|e| anyhow!(format!("ld err: {e:?}")))?;
+
     Ok(())
 }

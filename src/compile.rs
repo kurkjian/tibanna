@@ -101,7 +101,7 @@ impl Compiler {
                 // Every binding (for now) is put into rax and then immediately pushed onto the stack.
                 // This can be optimized later to avoid the stack probably (register allocation, code-gen ??)
                 instructions.push(Instruction::Mov(Mov::ToReg(Reg::Rax, arg)));
-                instructions.push(Instruction::Push);
+                instructions.push(Instruction::Push(Reg::Rax));
             }
         }
     }

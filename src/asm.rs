@@ -2,8 +2,8 @@ use std::fmt;
 
 pub enum Instruction {
     Syscall,
-    Push,
-    Pop,
+    Push(Reg),
+    Pop(Reg),
     Mov(Mov),
 }
 
@@ -11,8 +11,8 @@ impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Instruction::Syscall => write!(f, "syscall"),
-            Instruction::Push => write!(f, "push"),
-            Instruction::Pop => write!(f, "pop"),
+            Instruction::Push(reg) => write!(f, "push {}", reg),
+            Instruction::Pop(reg) => write!(f, "pop {}", reg),
             Instruction::Mov(mov) => write!(f, "{}", mov),
         }
     }
