@@ -5,6 +5,8 @@ pub enum Instruction {
     Push(Reg),
     Pop(Reg),
     Mov(Mov),
+    Add(Reg, Reg),
+    Sub(Reg, Reg),
 }
 
 impl fmt::Display for Instruction {
@@ -14,6 +16,8 @@ impl fmt::Display for Instruction {
             Instruction::Push(reg) => write!(f, "push {}", reg),
             Instruction::Pop(reg) => write!(f, "pop {}", reg),
             Instruction::Mov(mov) => write!(f, "{}", mov),
+            Instruction::Add(reg1, reg2) => write!(f, "add {}, {}", reg1, reg2),
+            Instruction::Sub(reg1, reg2) => write!(f, "sub {}, {}", reg1, reg2),
         }
     }
 }
@@ -24,6 +28,7 @@ pub enum Reg {
     Rsp,
     Rbp,
     Rax,
+    Rbx,
     Rdi,
 }
 

@@ -23,8 +23,16 @@ pub struct Expression {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExpressionVariant {
+    BinaryAdd(Box<Expression>, Box<Expression>),
+    BinarySub(Box<Expression>, Box<Expression>),
     Identifier(String),
     IntLit(usize),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -107,24 +115,27 @@ impl Parser {
 
     fn parse_expr(&mut self) -> Expression {
         if let Some(token) = self.peek() {
-            match token {
-                Token::Int(n) => {
-                    let variant = ExpressionVariant::IntLit(*n as usize);
-                    self.inc();
+            let expr = Expression::try_from(token.to_owned())
+                .expect("Could not convert token to expression");
+            self.inc();
 
-                    return Expression { variant };
+            match self.peek() {
+                Some(Token::Plus) => {
+                    self.inc();
+                    let right = self.parse_expr();
+                    return Expression {
+                        variant: ExpressionVariant::BinaryAdd(Box::new(expr), Box::new(right)),
+                    };
                 }
-                Token::Ident(ident) => {
-                    let variant = ExpressionVariant::Identifier(ident.to_string());
+                Some(Token::Minus) => {
                     self.inc();
-
-                    return Expression { variant };
+                    let right = self.parse_expr();
+                    return Expression {
+                        variant: ExpressionVariant::BinarySub(Box::new(expr), Box::new(right)),
+                    };
                 }
                 _ => {
-                    todo!(
-                        "Error handling: Unexpected token in expression: {:?}",
-                        token
-                    );
+                    return expr;
                 }
             }
         }
@@ -184,6 +195,24 @@ impl Parser {
     }
 }
 
+impl TryFrom<Token> for Expression {
+    type Error = ();
+
+    fn try_from(token: Token) -> Result<Self, Self::Error> {
+        match token {
+            Token::Int(n) => {
+                let variant = ExpressionVariant::IntLit(n);
+                return Ok(Expression { variant });
+            }
+            Token::Ident(ident) => {
+                let variant = ExpressionVariant::Identifier(ident.to_string());
+                return Ok(Expression { variant });
+            }
+            _ => return Err(()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +267,46 @@ mod tests {
                         },
                         expr: Expression {
                             variant: ExpressionVariant::IntLit(420),
+                        },
+                    },
+                }],
+            }
+        )
+    }
+
+    #[test]
+    fn test_bin_op() {
+        // let x = y + 2
+        let tokens = vec![
+            Token::Let,
+            Token::Ident("x".to_string()),
+            Token::Equal,
+            Token::Ident("y".to_string()),
+            Token::Plus,
+            Token::Int(2),
+            Token::Semi,
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let p = parser.parse();
+
+        assert_eq!(
+            p,
+            Program {
+                statements: vec![Statement {
+                    variant: StatementVariant::Let {
+                        ident: Identifier {
+                            name: "x".to_string()
+                        },
+                        expr: Expression {
+                            variant: ExpressionVariant::BinaryAdd(
+                                Box::new(Expression {
+                                    variant: ExpressionVariant::Identifier("y".to_string()),
+                                }),
+                                Box::new(Expression {
+                                    variant: ExpressionVariant::IntLit(2),
+                                }),
+                            ),
                         },
                     },
                 }],

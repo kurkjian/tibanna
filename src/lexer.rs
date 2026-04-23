@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     Exit,
     OpenParen,
@@ -10,6 +10,8 @@ pub enum Token {
     Let,
     Ident(String),
     Equal,
+    Plus,
+    Minus,
 }
 
 pub struct Lexer<'a> {
@@ -62,6 +64,12 @@ impl<'a> Lexer<'a> {
                 iter.next();
             } else if *char == '=' {
                 tokens.push(Token::Equal);
+                iter.next();
+            } else if *char == '+' {
+                tokens.push(Token::Plus);
+                iter.next();
+            } else if *char == '-' {
+                tokens.push(Token::Minus);
                 iter.next();
             } else if char.is_whitespace() {
                 iter.next();

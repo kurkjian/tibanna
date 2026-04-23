@@ -10,6 +10,16 @@ $$
     \end{cases} \\
 \text{expr} &\to
     \begin{cases}
+        \text{[bin\_expr]} \\
+        \text{[term]} \\
+    \end{cases} \\
+\text{bin\_expr} &\to
+    \begin{cases}
+        \text{[expr] + [expr]} \\
+        \text{[expr] - [expr]} \\
+    \end{cases} \\
+\text{term} &\to
+    \begin{cases}
         \text{ident} \\
         \text{intlit} \\
     \end{cases} \\
