@@ -71,6 +71,13 @@ impl<'a> Lexer<'a> {
             } else if *char == '-' {
                 tokens.push(Token::Minus);
                 iter.next();
+            } else if *char == '/' {
+                iter.next();
+                if iter.peek() == Some(&'/') {
+                    while iter.peek().is_some_and(|x| *x != '\n') {
+                        iter.next();
+                    }
+                }
             } else if char.is_whitespace() {
                 iter.next();
             } else {
