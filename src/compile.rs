@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    asm::{Arg64, Instruction, MemRef, Mov, Reg},
+    asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
     parser::{Expression, ExpressionVariant, Program, Statement, StatementVariant},
 };
 
@@ -27,7 +27,7 @@ impl Compiler {
             Instruction::Directive("global".to_string(), "_start".to_string()),
             Instruction::Label("_start".to_string()),
             Instruction::Push(Reg::Rbp),
-            Instruction::Mov(Mov::ToReg(Reg::Rbp, Arg64::Reg(Reg::Rsp))),
+            Instruction::Mov(MovArgs::ToReg(Reg::Rbp, Arg64::Reg(Reg::Rsp))),
         ];
 
         Self {
@@ -40,6 +40,12 @@ impl Compiler {
     pub fn compile(mut self) -> Vec<Instruction> {
         let statements = std::mem::take(&mut self.program.statements);
         let mut identifiers = HashMap::new();
+
+        let local_vars = count_vars(&statements);
+        self.instructions.push(Instruction::Sub(BinArgs::ToReg(
+            Reg::Rsp,
+            Arg64::Unsigned(local_vars * WORD_SIZE),
+        )));
 
         for stmt in statements {
             self.compile_statement(stmt, &mut identifiers);
@@ -67,11 +73,13 @@ impl Compiler {
                             },
                         };
 
-                        self.instructions
-                            .push(Instruction::Mov(Mov::ToReg(Reg::Rdi, Arg64::Mem(mem_ref))));
+                        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
+                            Reg::Rdi,
+                            Arg64::Mem(mem_ref),
+                        )));
                     }
                     ExpressionVariant::IntLit(value) => {
-                        self.instructions.push(Instruction::Mov(Mov::ToReg(
+                        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                             Reg::Rdi,
                             Arg64::Unsigned(value),
                         )));
@@ -81,22 +89,26 @@ impl Compiler {
                         self.compile_expr(*rhs, identifiers);
                         self.instructions.push(Instruction::Pop(Reg::Rdi));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
-                        self.stack_offset -= 2 * WORD_SIZE;
 
-                        self.instructions.push(Instruction::Add(Reg::Rdi, Reg::Rax));
+                        self.instructions.push(Instruction::Add(BinArgs::ToReg(
+                            Reg::Rdi,
+                            Arg64::Reg(Reg::Rax),
+                        )));
                     }
                     ExpressionVariant::BinarySub(lhs, rhs) => {
                         self.compile_expr(*lhs, identifiers);
                         self.compile_expr(*rhs, identifiers);
                         self.instructions.push(Instruction::Pop(Reg::Rdi));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
-                        self.stack_offset -= 2 * WORD_SIZE;
 
-                        self.instructions.push(Instruction::Sub(Reg::Rdi, Reg::Rax));
+                        self.instructions.push(Instruction::Sub(BinArgs::ToReg(
+                            Reg::Rdi,
+                            Arg64::Reg(Reg::Rax),
+                        )));
                     }
                 }
 
-                self.instructions.push(Instruction::Mov(Mov::ToReg(
+                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                     Reg::Rax,
                     Arg64::Unsigned(EXIT_SYSCALL),
                 )));
@@ -116,6 +128,7 @@ impl Compiler {
                             offset,
                         };
                         identifiers.insert(ident.name, VariableLocation::Offset(self.stack_offset));
+
                         Arg64::Mem(mem_ref)
                     }
                     ExpressionVariant::IntLit(value) => {
@@ -129,9 +142,11 @@ impl Compiler {
                         self.compile_expr(*rhs, identifiers);
                         self.instructions.push(Instruction::Pop(Reg::Rax));
                         self.instructions.push(Instruction::Pop(Reg::Rbx));
-                        self.stack_offset -= 2 * WORD_SIZE;
 
-                        self.instructions.push(Instruction::Add(Reg::Rax, Reg::Rbx));
+                        self.instructions.push(Instruction::Add(BinArgs::ToReg(
+                            Reg::Rax,
+                            Arg64::Reg(Reg::Rbx),
+                        )));
 
                         let loc = VariableLocation::Offset(self.stack_offset);
                         identifiers.insert(ident.name, loc);
@@ -143,9 +158,11 @@ impl Compiler {
                         self.compile_expr(*rhs, identifiers);
                         self.instructions.push(Instruction::Pop(Reg::Rbx));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
-                        self.stack_offset -= 2 * WORD_SIZE;
 
-                        self.instructions.push(Instruction::Sub(Reg::Rax, Reg::Rbx));
+                        self.instructions.push(Instruction::Sub(BinArgs::ToReg(
+                            Reg::Rax,
+                            Arg64::Reg(Reg::Rbx),
+                        )));
 
                         let loc = VariableLocation::Offset(self.stack_offset);
                         identifiers.insert(ident.name, loc);
@@ -154,11 +171,20 @@ impl Compiler {
                     }
                 };
 
-                // Every binding (for now) is put into rax and then immediately pushed onto the stack.
-                // This can be optimized later to avoid the stack probably (register allocation, code-gen ??)
+                // Every binding (for now) is put into rax and then put onto the
+                // stack at the reserved stack slot. Later, we can do some register
+                // allocation
                 self.instructions
-                    .push(Instruction::Mov(Mov::ToReg(Reg::Rax, arg)));
-                self.instructions.push(Instruction::Push(Reg::Rax));
+                    .push(Instruction::Mov(MovArgs::ToReg(Reg::Rax, arg)));
+                self.instructions.push(Instruction::Mov(MovArgs::ToMem(
+                    MemRef {
+                        reg: Reg::Rbp,
+                        offset: self.stack_offset,
+                    },
+                    Reg::Rax,
+                )));
+
+                // Point stack offset to next slot reserved for local vars
                 self.stack_offset += WORD_SIZE;
             }
         }
@@ -171,34 +197,35 @@ impl Compiler {
     ) {
         match expr.variant {
             ExpressionVariant::IntLit(value) => {
-                self.instructions.push(Instruction::Mov(Mov::ToReg(
+                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                     Reg::Rax,
                     Arg64::Unsigned(value),
                 )));
                 self.instructions.push(Instruction::Push(Reg::Rax));
-                self.stack_offset += WORD_SIZE;
             }
             ExpressionVariant::BinaryAdd(lhs, rhs) => {
                 self.compile_expr(*lhs, identifiers);
                 self.compile_expr(*rhs, identifiers);
                 self.instructions.push(Instruction::Pop(Reg::Rax));
                 self.instructions.push(Instruction::Pop(Reg::Rbx));
-                self.stack_offset -= 2 * WORD_SIZE;
 
-                self.instructions.push(Instruction::Add(Reg::Rax, Reg::Rbx));
+                self.instructions.push(Instruction::Add(BinArgs::ToReg(
+                    Reg::Rax,
+                    Arg64::Reg(Reg::Rbx),
+                )));
                 self.instructions.push(Instruction::Push(Reg::Rax));
-                self.stack_offset += WORD_SIZE;
             }
             ExpressionVariant::BinarySub(lhs, rhs) => {
                 self.compile_expr(*lhs, identifiers);
                 self.compile_expr(*rhs, identifiers);
                 self.instructions.push(Instruction::Pop(Reg::Rax));
                 self.instructions.push(Instruction::Pop(Reg::Rbx));
-                self.stack_offset -= 2 * WORD_SIZE;
 
-                self.instructions.push(Instruction::Sub(Reg::Rax, Reg::Rbx));
+                self.instructions.push(Instruction::Sub(BinArgs::ToReg(
+                    Reg::Rax,
+                    Arg64::Reg(Reg::Rbx),
+                )));
                 self.instructions.push(Instruction::Push(Reg::Rax));
-                self.stack_offset += WORD_SIZE;
             }
             ExpressionVariant::Identifier(name) => {
                 let var = identifiers
@@ -208,7 +235,7 @@ impl Compiler {
                 let offset = match var {
                     VariableLocation::Offset(offset) => *offset,
                 };
-                self.instructions.push(Instruction::Mov(Mov::ToReg(
+                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                     Reg::Rax,
                     Arg64::Mem(MemRef {
                         reg: Reg::Rbp,
@@ -216,29 +243,22 @@ impl Compiler {
                     }),
                 )));
                 self.instructions.push(Instruction::Push(Reg::Rax));
-                self.stack_offset += WORD_SIZE;
             }
         }
     }
 }
 
-// let x = 5;
-// exit(x);
-// <------->
-// mov rax, 5
-// push rax,
-// mov rax, 60
-// mov rdi, [rsp]
-// syscall
-
-// let x = 5;
-// let y = x;
-// exit(y);
-// <------->
-// mov rax, 5
-// push rax,
-// mov rax, [rsp]
-// push rax
-// mov rax, 60
-// mov rdi, [rsp]
-// syscall
+fn count_vars(statements: &[Statement]) -> usize {
+    let mut count = 0;
+    for stmt in statements {
+        if matches!(
+            stmt,
+            Statement {
+                variant: StatementVariant::Let { .. }
+            }
+        ) {
+            count += 1;
+        }
+    }
+    count
+}

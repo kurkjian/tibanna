@@ -6,9 +6,9 @@ pub enum Instruction {
     Syscall,
     Push(Reg),
     Pop(Reg),
-    Mov(Mov),
-    Add(Reg, Reg),
-    Sub(Reg, Reg),
+    Mov(MovArgs),
+    Add(BinArgs),
+    Sub(BinArgs),
 }
 
 impl fmt::Debug for Instruction {
@@ -26,8 +26,8 @@ impl fmt::Display for Instruction {
             Instruction::Push(reg) => write!(f, "push {}", reg),
             Instruction::Pop(reg) => write!(f, "pop {}", reg),
             Instruction::Mov(mov) => write!(f, "{}", mov),
-            Instruction::Add(reg1, reg2) => write!(f, "add {}, {}", reg1, reg2),
-            Instruction::Sub(reg1, reg2) => write!(f, "sub {}, {}", reg1, reg2),
+            Instruction::Add(args) => write!(f, "add {}", args),
+            Instruction::Sub(args) => write!(f, "sub {}", args),
         }
     }
 }
@@ -53,14 +53,28 @@ impl fmt::Display for MemRef {
     }
 }
 
-pub enum Mov {
-    ToReg(Reg, Arg64),
+pub enum BinArgs {
+    ToReg(Reg, Arg64), //FIXME: i think this should actually be arg32
 }
 
-impl fmt::Display for Mov {
+impl fmt::Display for BinArgs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Mov::ToReg(reg, arg) => write!(f, "mov {}, {}", reg, arg),
+            BinArgs::ToReg(reg, arg) => write!(f, "{}, {}", reg, arg),
+        }
+    }
+}
+
+pub enum MovArgs {
+    ToReg(Reg, Arg64),
+    ToMem(MemRef, Reg),
+}
+
+impl fmt::Display for MovArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MovArgs::ToReg(reg, arg) => write!(f, "mov {}, {}", reg, arg),
+            MovArgs::ToMem(mem, reg) => write!(f, "mov {}, {}", mem, reg),
         }
     }
 }
@@ -87,10 +101,10 @@ mod tests {
 
     #[test]
     fn test_mov_display() {
-        let mov = Instruction::Mov(Mov::ToReg(Reg::Rax, Arg64::Reg(Reg::Rdi)));
+        let mov = Instruction::Mov(MovArgs::ToReg(Reg::Rax, Arg64::Reg(Reg::Rdi)));
         assert_eq!(format!("{}", mov), "mov rax, rdi");
 
-        let mov = Instruction::Mov(Mov::ToReg(
+        let mov = Instruction::Mov(MovArgs::ToReg(
             Reg::Rax,
             Arg64::Mem(MemRef {
                 reg: Reg::Rbp,
