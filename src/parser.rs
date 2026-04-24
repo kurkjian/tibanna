@@ -202,13 +202,13 @@ impl TryFrom<Token> for Expression {
         match token {
             Token::Int(n) => {
                 let variant = ExpressionVariant::IntLit(n);
-                return Ok(Expression { variant });
+                Ok(Expression { variant })
             }
             Token::Ident(ident) => {
                 let variant = ExpressionVariant::Identifier(ident.to_string());
-                return Ok(Expression { variant });
+                Ok(Expression { variant })
             }
-            _ => return Err(()),
+            _ => Err(()),
         }
     }
 }

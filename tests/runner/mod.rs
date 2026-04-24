@@ -3,7 +3,7 @@ use tempfile::TempDir;
 use tibanna::{compile::Compiler, lexer::Lexer, parser::Parser};
 
 pub fn compile_and_run(prog: &str) -> ExitStatus {
-    let instrs = Compiler::new().compile(Parser::new(Lexer::new(prog).tokenize().unwrap()).parse());
+    let instrs = Compiler::new(Parser::new(Lexer::new(prog).tokenize().unwrap()).parse()).compile();
     let asm_instrs = instrs
         .into_iter()
         .fold(String::new(), |acc, instr| format!("{}\n{}", acc, instr));

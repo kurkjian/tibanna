@@ -32,7 +32,7 @@ fn main() -> Result<()> {
         File::create(&output_path).map_err(|e| anyhow!(format!("Could not create file: {}", e)))?;
     init_header(&mut asm_file)?;
 
-    let instructions = Compiler::new().compile(program);
+    let instructions = Compiler::new(program).compile();
     for instr in instructions {
         asm_file
             .write(format!("{}\n", instr).as_bytes())
@@ -48,8 +48,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn parse(prog: &mut String) -> Result<Program> {
-    let mut lexer = Lexer::new(&prog);
+fn parse(prog: &mut str) -> Result<Program> {
+    let mut lexer = Lexer::new(prog);
     let tokens = lexer.tokenize()?;
 
     let mut parser = Parser::new(tokens);
@@ -91,21 +91,5 @@ fn link() -> Result<()> {
         .output()
         .map_err(|e| anyhow!(format!("ld err: {e:?}")))?;
 
-    Ok(())
-}
-
-fn pipeline(prog: &str) -> Result<()> {
-    let instrs = Compiler::new().compile(Parser::new(Lexer::new(prog).tokenize()?).parse());
-
-    let as_str = instrs
-        .into_iter()
-        .fold(String::new(), |acc, instr| format!("{}\n{}", acc, instr));
-
-    let as_str = r#"
-        global _start
-        _start:
-    "#
-    .to_string()
-        + &as_str;
     Ok(())
 }
