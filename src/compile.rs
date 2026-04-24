@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
-    parser::{Expression, ExpressionVariant, Program, Statement, StatementVariant},
+    parser::{BinOp, Expression, ExpressionVariant, Program, Statement, StatementVariant},
 };
 
 const EXIT_SYSCALL: usize = 60;
@@ -84,27 +84,14 @@ impl Compiler {
                             Arg64::Unsigned(value),
                         )));
                     }
-                    ExpressionVariant::BinaryAdd(lhs, rhs) => {
+                    ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers);
                         self.compile_expr(*rhs, identifiers);
                         self.instructions.push(Instruction::Pop(Reg::Rdi));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
 
-                        self.instructions.push(Instruction::Add(BinArgs::ToReg(
-                            Reg::Rdi,
-                            Arg64::Reg(Reg::Rax),
-                        )));
-                    }
-                    ExpressionVariant::BinarySub(lhs, rhs) => {
-                        self.compile_expr(*lhs, identifiers);
-                        self.compile_expr(*rhs, identifiers);
-                        self.instructions.push(Instruction::Pop(Reg::Rdi));
-                        self.instructions.push(Instruction::Pop(Reg::Rax));
-
-                        self.instructions.push(Instruction::Sub(BinArgs::ToReg(
-                            Reg::Rdi,
-                            Arg64::Reg(Reg::Rax),
-                        )));
+                        self.instructions
+                            .push(bin_op_to_instr(op, Reg::Rdi, Reg::Rax));
                     }
                 }
 
@@ -137,32 +124,14 @@ impl Compiler {
 
                         Arg64::Unsigned(value)
                     }
-                    ExpressionVariant::BinaryAdd(lhs, rhs) => {
-                        self.compile_expr(*lhs, identifiers);
-                        self.compile_expr(*rhs, identifiers);
-                        self.instructions.push(Instruction::Pop(Reg::Rax));
-                        self.instructions.push(Instruction::Pop(Reg::Rbx));
-
-                        self.instructions.push(Instruction::Add(BinArgs::ToReg(
-                            Reg::Rax,
-                            Arg64::Reg(Reg::Rbx),
-                        )));
-
-                        let loc = VariableLocation::Offset(self.stack_offset);
-                        identifiers.insert(ident.name, loc);
-
-                        Arg64::Reg(Reg::Rax)
-                    }
-                    ExpressionVariant::BinarySub(lhs, rhs) => {
+                    ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers);
                         self.compile_expr(*rhs, identifiers);
                         self.instructions.push(Instruction::Pop(Reg::Rbx));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
 
-                        self.instructions.push(Instruction::Sub(BinArgs::ToReg(
-                            Reg::Rax,
-                            Arg64::Reg(Reg::Rbx),
-                        )));
+                        self.instructions
+                            .push(bin_op_to_instr(op, Reg::Rax, Reg::Rbx));
 
                         let loc = VariableLocation::Offset(self.stack_offset);
                         identifiers.insert(ident.name, loc);
@@ -203,29 +172,14 @@ impl Compiler {
                 )));
                 self.instructions.push(Instruction::Push(Reg::Rax));
             }
-            ExpressionVariant::BinaryAdd(lhs, rhs) => {
+            ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
                 self.compile_expr(*lhs, identifiers);
                 self.compile_expr(*rhs, identifiers);
-                self.instructions.push(Instruction::Pop(Reg::Rax));
                 self.instructions.push(Instruction::Pop(Reg::Rbx));
-
-                self.instructions.push(Instruction::Add(BinArgs::ToReg(
-                    Reg::Rax,
-                    Arg64::Reg(Reg::Rbx),
-                )));
-                self.instructions.push(Instruction::Push(Reg::Rax));
-            }
-            ExpressionVariant::BinarySub(lhs, rhs) => {
-                self.compile_expr(*lhs, identifiers);
-                self.compile_expr(*rhs, identifiers);
                 self.instructions.push(Instruction::Pop(Reg::Rax));
-                self.instructions.push(Instruction::Pop(Reg::Rbx));
 
-                self.instructions.push(Instruction::Sub(BinArgs::ToReg(
-                    Reg::Rax,
-                    Arg64::Reg(Reg::Rbx),
-                )));
-                self.instructions.push(Instruction::Push(Reg::Rax));
+                self.instructions
+                    .push(bin_op_to_instr(op, Reg::Rax, Reg::Rbx));
             }
             ExpressionVariant::Identifier(name) => {
                 let var = identifiers
@@ -261,4 +215,11 @@ fn count_vars(statements: &[Statement]) -> usize {
         }
     }
     count
+}
+
+fn bin_op_to_instr(op: BinOp, reg1: Reg, reg2: Reg) -> Instruction {
+    match op {
+        BinOp::Add => Instruction::Add(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+        BinOp::Sub => Instruction::Sub(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+    }
 }

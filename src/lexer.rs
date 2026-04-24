@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::{iter::Peekable, str::Chars};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
@@ -25,69 +26,92 @@ impl<'a> Lexer<'a> {
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
-        let mut str_buffer = String::new();
         let mut iter = self.text.chars().peekable();
 
         while let Some(char) = iter.peek() {
-            if char.is_alphabetic() {
-                str_buffer.push(iter.next().unwrap());
-
-                while let Some(next) = iter.peek()
-                    && next.is_alphanumeric()
-                {
-                    str_buffer.push(iter.next().unwrap());
+            match char {
+                char if char.is_alphabetic() => tokens.push(self.string(&mut iter)?),
+                char if char.is_ascii_digit() => tokens.push(self.number(&mut iter)?),
+                '(' => {
+                    iter.next();
+                    tokens.push(Token::OpenParen);
                 }
-
-                match str_buffer.as_str() {
-                    "exit" => tokens.push(Token::Exit),
-                    "let" => tokens.push(Token::Let),
-                    _ => tokens.push(Token::Ident(str_buffer.clone())),
+                ')' => {
+                    iter.next();
+                    tokens.push(Token::CloseParen);
                 }
-            } else if char.is_ascii_digit() {
-                str_buffer.push(iter.next().unwrap());
-
-                while let Some(next) = iter.peek()
-                    && next.is_ascii_digit()
-                {
-                    str_buffer.push(iter.next().unwrap());
+                ';' => {
+                    iter.next();
+                    tokens.push(Token::Semi);
                 }
-
-                tokens.push(Token::Int(str_buffer.parse::<usize>()?));
-            } else if *char == '(' {
-                tokens.push(Token::OpenParen);
-                iter.next();
-            } else if *char == ')' {
-                tokens.push(Token::CloseParen);
-                iter.next();
-            } else if *char == ';' {
-                tokens.push(Token::Semi);
-                iter.next();
-            } else if *char == '=' {
-                tokens.push(Token::Equal);
-                iter.next();
-            } else if *char == '+' {
-                tokens.push(Token::Plus);
-                iter.next();
-            } else if *char == '-' {
-                tokens.push(Token::Minus);
-                iter.next();
-            } else if *char == '/' {
-                iter.next();
-                if iter.peek() == Some(&'/') {
-                    while iter.peek().is_some_and(|x| *x != '\n') {
-                        iter.next();
+                '=' => {
+                    iter.next();
+                    tokens.push(Token::Equal);
+                }
+                '+' => {
+                    iter.next();
+                    tokens.push(Token::Plus);
+                }
+                '-' => {
+                    iter.next();
+                    tokens.push(Token::Minus);
+                }
+                '/' => {
+                    iter.next();
+                    if iter.peek() == Some(&'/') {
+                        while iter.peek().is_some_and(|x| *x != '\n') {
+                            iter.next();
+                        }
                     }
                 }
-            } else if char.is_whitespace() {
-                iter.next();
-            } else {
-                return Err(anyhow::anyhow!("Unknown token: {}", char));
-            }
+                char if char.is_whitespace() => {
+                    iter.next();
+                }
 
-            str_buffer.clear();
+                _ => {
+                    return Err(anyhow::anyhow!("Unknown token: {}", char));
+                }
+            }
         }
 
         Ok(tokens)
+    }
+
+    fn take_while<F>(&mut self, iter: &mut Peekable<Chars>, cond: F) -> String
+    where
+        F: Fn(char) -> bool,
+    {
+        let mut buf = String::new();
+
+        while let Some(&c) = iter.peek() {
+            if cond(c) {
+                buf.push(c);
+                iter.next();
+            } else {
+                break;
+            }
+        }
+
+        buf
+    }
+
+    fn string(&mut self, iter: &mut Peekable<Chars>) -> Result<Token> {
+        let ident = self.take_while(iter, |c| c.is_alphanumeric());
+        let token = match ident.as_str() {
+            "exit" => Token::Exit,
+            "let" => Token::Let,
+            _ => Token::Ident(ident),
+        };
+
+        Ok(token)
+    }
+
+    fn number(&mut self, iter: &mut Peekable<Chars>) -> Result<Token> {
+        let num = self
+            .take_while(iter, |c| c.is_ascii_digit())
+            .parse::<usize>()?;
+
+        Ok(Token::Int(num))
     }
 }
 

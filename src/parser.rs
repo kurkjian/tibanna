@@ -23,8 +23,7 @@ pub struct Expression {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExpressionVariant {
-    BinaryAdd(Box<Expression>, Box<Expression>),
-    BinarySub(Box<Expression>, Box<Expression>),
+    BinaryExpr(Box<Expression>, Box<Expression>, BinOp),
     Identifier(String),
     IntLit(usize),
 }
@@ -124,14 +123,22 @@ impl Parser {
                     self.inc();
                     let right = self.parse_expr();
                     return Expression {
-                        variant: ExpressionVariant::BinaryAdd(Box::new(expr), Box::new(right)),
+                        variant: ExpressionVariant::BinaryExpr(
+                            Box::new(expr),
+                            Box::new(right),
+                            BinOp::Add,
+                        ),
                     };
                 }
                 Some(Token::Minus) => {
                     self.inc();
                     let right = self.parse_expr();
                     return Expression {
-                        variant: ExpressionVariant::BinarySub(Box::new(expr), Box::new(right)),
+                        variant: ExpressionVariant::BinaryExpr(
+                            Box::new(expr),
+                            Box::new(right),
+                            BinOp::Sub,
+                        ),
                     };
                 }
                 _ => {
@@ -299,13 +306,14 @@ mod tests {
                             name: "x".to_string()
                         },
                         expr: Expression {
-                            variant: ExpressionVariant::BinaryAdd(
+                            variant: ExpressionVariant::BinaryExpr(
                                 Box::new(Expression {
                                     variant: ExpressionVariant::Identifier("y".to_string()),
                                 }),
                                 Box::new(Expression {
                                     variant: ExpressionVariant::IntLit(2),
                                 }),
+                                BinOp::Add
                             ),
                         },
                     },
