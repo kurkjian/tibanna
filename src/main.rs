@@ -20,7 +20,12 @@ fn main() -> Result<()> {
     }
 
     let path = Path::new(&args[1]);
-    let program = parse(path)?;
+    let mut file = File::open(path).map_err(|e| anyhow!(format!("Could not open file: {}", e)))?;
+    let mut buf = String::new();
+
+    file.read_to_string(&mut buf)
+        .map_err(|e| anyhow!(format!("Could not read file: {}", e)))?;
+    let program = parse(&mut buf)?;
 
     let output_path = path.parent().unwrap().join("out.s");
     let mut asm_file =
@@ -43,14 +48,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn parse(p: &Path) -> Result<Program> {
-    let mut file = File::open(p).map_err(|e| anyhow!(format!("Could not open file: {}", e)))?;
-    let mut buf = String::new();
-
-    file.read_to_string(&mut buf)
-        .map_err(|e| anyhow!(format!("Could not read file: {}", e)))?;
-
-    let mut lexer = Lexer::new(&buf);
+fn parse(prog: &mut String) -> Result<Program> {
+    let mut lexer = Lexer::new(&prog);
     let tokens = lexer.tokenize()?;
 
     let mut parser = Parser::new(tokens);
@@ -65,6 +64,8 @@ fn init_header(asm_file: &mut File) -> Result<()> {
             "\
             global _start
 _start:
+push rbp
+mov rbp, rsp
 "
             .to_string()
             .as_bytes(),
@@ -90,5 +91,21 @@ fn link() -> Result<()> {
         .output()
         .map_err(|e| anyhow!(format!("ld err: {e:?}")))?;
 
+    Ok(())
+}
+
+fn pipeline(prog: &str) -> Result<()> {
+    let instrs = Compiler::new().compile(Parser::new(Lexer::new(prog).tokenize()?).parse());
+
+    let as_str = instrs
+        .into_iter()
+        .fold(String::new(), |acc, instr| format!("{}\n{}", acc, instr));
+
+    let as_str = r#"
+        global _start
+        _start:
+    "#
+    .to_string()
+        + &as_str;
     Ok(())
 }

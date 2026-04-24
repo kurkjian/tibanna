@@ -9,6 +9,12 @@ pub enum Instruction {
     Sub(Reg, Reg),
 }
 
+impl fmt::Debug for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -39,7 +45,7 @@ pub struct MemRef {
 
 impl fmt::Display for MemRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}+{}]", self.reg, self.offset)
+        write!(f, "[{}-{}]", self.reg, self.offset)
     }
 }
 
@@ -83,10 +89,10 @@ mod tests {
         let mov = Instruction::Mov(Mov::ToReg(
             Reg::Rax,
             Arg64::Mem(MemRef {
-                reg: Reg::Rsp,
+                reg: Reg::Rbp,
                 offset: 8,
             }),
         ));
-        assert_eq!(format!("{}", mov), "mov rax, [rsp+8]");
+        assert_eq!(format!("{}", mov), "mov rax, [rbp-8]");
     }
 }

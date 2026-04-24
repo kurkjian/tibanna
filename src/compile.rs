@@ -7,9 +7,9 @@ use crate::{
 
 const EXIT_SYSCALL: usize = 60;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum VariableLocation {
-    // Offset from RSP
+    // Offset from RBP
     Offset(usize),
 }
 
@@ -19,7 +19,7 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { stack_offset: 0 }
+        Self { stack_offset: 8 }
     }
 
     pub fn compile(&mut self, program: Program) -> Vec<Instruction> {
@@ -28,8 +28,11 @@ impl Compiler {
 
         for stmt in program.statements {
             self.compile_statement(stmt, &mut instructions, &mut identifiers);
+
+            println!("DEBUG: {instructions:?}")
         }
 
+        println!("DEBUG: {identifiers:?}");
         instructions
     }
 
@@ -48,7 +51,7 @@ impl Compiler {
                             .expect(&format!("Undeclared identifier: {name:?}"));
                         let mem_ref = match loc {
                             VariableLocation::Offset(offset) => MemRef {
-                                reg: Reg::Rsp,
+                                reg: Reg::Rbp,
                                 offset: *offset,
                             },
                         };
@@ -95,7 +98,7 @@ impl Compiler {
                             _ => unreachable!(), // FIXME: eventually var loc should be either a reg or a stack offset
                         };
                         let mem_ref = MemRef {
-                            reg: Reg::Rsp,
+                            reg: Reg::Rbp,
                             offset,
                         };
                         identifiers.insert(ident.name, VariableLocation::Offset(self.stack_offset));
@@ -187,7 +190,7 @@ impl Compiler {
                 instructions.push(Instruction::Mov(Mov::ToReg(
                     Reg::Rax,
                     Arg64::Mem(MemRef {
-                        reg: Reg::Rsp,
+                        reg: Reg::Rbp,
                         offset,
                     }),
                 )));
