@@ -22,9 +22,17 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new(program: Program) -> Self {
+        // Preamble to define entry point and initialize stack frame
+        let instructions = vec![
+            Instruction::Directive("global".to_string(), "_start".to_string()),
+            Instruction::Label("_start".to_string()),
+            Instruction::Push(Reg::Rbp),
+            Instruction::Mov(Mov::ToReg(Reg::Rbp, Arg64::Reg(Reg::Rsp))),
+        ];
+
         Self {
             program,
-            instructions: Vec::new(),
+            instructions,
             stack_offset: WORD_SIZE,
         }
     }

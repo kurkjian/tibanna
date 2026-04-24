@@ -8,20 +8,11 @@ pub fn compile_and_run(prog: &str) -> ExitStatus {
         .into_iter()
         .fold(String::new(), |acc, instr| format!("{}\n{}", acc, instr));
 
-    let as_str = r#"
-            global _start
-            _start:
-            push rbp
-            mov rbp, rsp
-        "#
-    .to_string()
-        + &asm_instrs;
-
     let dir = TempDir::new().unwrap();
     let asm = dir.path().join("prog.asm");
     let obj = dir.path().join("prog.o");
     let exe = dir.path().join("prog");
-    std::fs::write(&asm, as_str.as_bytes()).unwrap();
+    std::fs::write(&asm, asm_instrs.as_bytes()).unwrap();
 
     let _nasm = Command::new("nasm")
         .arg("-f")

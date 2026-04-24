@@ -30,7 +30,6 @@ fn main() -> Result<()> {
     let output_path = path.parent().unwrap().join("out.s");
     let mut asm_file =
         File::create(&output_path).map_err(|e| anyhow!(format!("Could not create file: {}", e)))?;
-    init_header(&mut asm_file)?;
 
     let instructions = Compiler::new(program).compile();
     for instr in instructions {
@@ -56,22 +55,6 @@ fn parse(prog: &mut str) -> Result<Program> {
     let program = parser.parse();
 
     Ok(program)
-}
-
-fn init_header(asm_file: &mut File) -> Result<()> {
-    asm_file
-        .write(
-            "\
-            global _start
-_start:
-push rbp
-mov rbp, rsp
-"
-            .to_string()
-            .as_bytes(),
-        )
-        .map_err(|e| anyhow!(format!("Could not write to file: {}", e)))?;
-    Ok(())
 }
 
 fn link() -> Result<()> {

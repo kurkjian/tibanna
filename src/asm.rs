@@ -1,6 +1,8 @@
 use std::fmt;
 
 pub enum Instruction {
+    Directive(String, String),
+    Label(String),
     Syscall,
     Push(Reg),
     Pop(Reg),
@@ -18,6 +20,8 @@ impl fmt::Debug for Instruction {
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Instruction::Directive(dir, val) => write!(f, "{} {}", dir, val),
+            Instruction::Label(label) => write!(f, "{}:", label),
             Instruction::Syscall => write!(f, "syscall"),
             Instruction::Push(reg) => write!(f, "push {}", reg),
             Instruction::Pop(reg) => write!(f, "pop {}", reg),
