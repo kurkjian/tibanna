@@ -9,6 +9,11 @@ pub enum Instruction {
     Mov(MovArgs),
     Add(BinArgs),
     Sub(BinArgs),
+    Cmp(BinArgs),
+
+    Jne(String),
+    Je(String),
+    Jmp(String),
 }
 
 impl fmt::Debug for Instruction {
@@ -28,6 +33,10 @@ impl fmt::Display for Instruction {
             Instruction::Mov(mov) => write!(f, "{}", mov),
             Instruction::Add(args) => write!(f, "add {}", args),
             Instruction::Sub(args) => write!(f, "sub {}", args),
+            Instruction::Cmp(args) => write!(f, "cmp {}", args),
+            Instruction::Jne(label) => write!(f, "jne {}", label),
+            Instruction::Je(label) => write!(f, "je {}", label),
+            Instruction::Jmp(label) => write!(f, "jmp {}", label),
         }
     }
 }

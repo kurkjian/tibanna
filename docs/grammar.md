@@ -7,6 +7,8 @@ $$
     \begin{cases}
         exit(\text{[expr]}); \\
         let \space \text{[ident]} = \text{[expr]}; \\
+        if \space \text{[expr]} \space \{[scope]\} \\
+        \{[scope]\}
     \end{cases} \\
 \text{expr} &\to
     \begin{cases}
@@ -18,6 +20,7 @@ $$
         \text{[expr] + [expr]} \\
         \text{[expr] - [expr]} \\
     \end{cases} \\
+\text{scope} &\to \text{[stmt]}^* \\
 \text{term} &\to
     \begin{cases}
         \text{ident} \\

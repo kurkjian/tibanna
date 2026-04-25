@@ -18,6 +18,7 @@ pub struct Compiler {
     program: Program,
     instructions: Vec<Instruction>,
     stack_offset: usize,
+    seq_no: usize,
 }
 
 impl Compiler {
@@ -34,6 +35,7 @@ impl Compiler {
             program,
             instructions,
             stack_offset: WORD_SIZE,
+            seq_no: 0,
         }
     }
 
@@ -156,6 +158,21 @@ impl Compiler {
                 // Point stack offset to next slot reserved for local vars
                 self.stack_offset += WORD_SIZE;
             }
+            StatementVariant::If { cond, then } => {
+                self.compile_expr(cond, identifiers);
+                self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
+                    Reg::Rax,
+                    Arg64::Unsigned(0),
+                )));
+
+                let label = format!("_if{}", self.seq());
+                self.instructions.push(Instruction::Je(label.clone()));
+                for stmt in then {
+                    self.compile_statement(stmt, identifiers);
+                }
+
+                self.instructions.push(Instruction::Label(label));
+            }
         }
     }
 
@@ -199,6 +216,11 @@ impl Compiler {
                 self.instructions.push(Instruction::Push(Reg::Rax));
             }
         }
+    }
+
+    fn seq(&mut self) -> usize {
+        self.seq_no += 1;
+        self.seq_no - 1
     }
 }
 

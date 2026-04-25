@@ -6,6 +6,8 @@ pub enum Token {
     Exit,
     OpenParen,
     CloseParen,
+    OpenBrace,
+    CloseBrace,
     Int(usize),
     Semi,
     Let,
@@ -13,6 +15,7 @@ pub enum Token {
     Equal,
     Plus,
     Minus,
+    If,
 }
 
 pub struct Lexer<'a> {
@@ -39,6 +42,14 @@ impl<'a> Lexer<'a> {
                 ')' => {
                     iter.next();
                     tokens.push(Token::CloseParen);
+                }
+                '{' => {
+                    iter.next();
+                    tokens.push(Token::OpenBrace);
+                }
+                '}' => {
+                    iter.next();
+                    tokens.push(Token::CloseBrace);
                 }
                 ';' => {
                     iter.next();
@@ -100,6 +111,7 @@ impl<'a> Lexer<'a> {
         let token = match ident.as_str() {
             "exit" => Token::Exit,
             "let" => Token::Let,
+            "if" => Token::If,
             _ => Token::Ident(ident),
         };
 

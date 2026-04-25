@@ -13,7 +13,14 @@ pub struct Statement {
 #[derive(Debug, PartialEq, Eq)]
 pub enum StatementVariant {
     Exit(Expression),
-    Let { ident: Identifier, expr: Expression },
+    Let {
+        ident: Identifier,
+        expr: Expression,
+    },
+    If {
+        cond: Expression,
+        then: Vec<Statement>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,6 +74,7 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> Statement {
+        let mut end_of_scope = false;
         if let Some(token) = self.peek() {
             let statement = match token {
                 Token::Exit => {
@@ -91,6 +99,23 @@ impl Parser {
                         variant: StatementVariant::Let { ident, expr },
                     }
                 }
+                Token::If => {
+                    self.inc();
+
+                    let cond = self.parse_expr();
+                    self.parse_brace(true);
+                    let mut body = Vec::new();
+                    while !matches!(self.peek(), Some(Token::CloseBrace)) {
+                        let statement = self.parse_statement();
+                        body.push(statement);
+                    }
+                    self.parse_brace(false);
+
+                    end_of_scope = true;
+                    Statement {
+                        variant: StatementVariant::If { cond, then: body },
+                    }
+                }
                 _ => {
                     todo!("Error handling: Unexpected token: {:?}", token);
                 }
@@ -99,7 +124,7 @@ impl Parser {
             let next = self.peek();
             if matches!(next, Some(Token::Semi)) {
                 self.inc();
-            } else {
+            } else if !end_of_scope {
                 todo!(
                     "Error handling: Expected semicolon after statement: {:?}",
                     next
@@ -182,6 +207,22 @@ impl Parser {
         }
 
         todo!("Error handling: Expected paren, found none");
+    }
+
+    fn parse_brace(&mut self, open: bool) {
+        if let Some(token) = self.peek() {
+            match (token, open) {
+                (Token::OpenBrace, true) | (Token::CloseBrace, false) => {
+                    self.inc();
+                    return;
+                }
+                _ => {
+                    todo!("Error handling: Expected brace, found: {:?}", token);
+                }
+            }
+        }
+
+        todo!("Error handling: Expected brace, found none");
     }
 
     fn parse_eq(&mut self) {
