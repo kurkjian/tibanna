@@ -19,6 +19,20 @@ pub enum Token {
     If,
 }
 
+impl Token {
+    pub fn is_binary_op(&self) -> bool {
+        matches!(self, Token::Plus | Token::Minus | Token::Star)
+    }
+
+    pub fn precedence(&self) -> usize {
+        match self {
+            Token::Plus | Token::Minus => 0,
+            Token::Star => 1,
+            _ => 0,
+        }
+    }
+}
+
 pub struct Lexer<'a> {
     text: &'a str,
 }

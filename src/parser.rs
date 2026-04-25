@@ -35,6 +35,11 @@ pub struct Expression {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExpressionVariant {
     BinaryExpr(Box<Expression>, Box<Expression>, BinOp),
+    Term(Term),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Term {
     Identifier(String),
     IntLit(usize),
 }
@@ -44,6 +49,17 @@ pub enum BinOp {
     Add,
     Sub,
     Mul,
+}
+
+impl From<Token> for BinOp {
+    fn from(token: Token) -> Self {
+        match token {
+            Token::Plus => BinOp::Add,
+            Token::Minus => BinOp::Sub,
+            Token::Star => BinOp::Mul,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -161,48 +177,62 @@ impl Parser {
                 .expect("Could not convert token to expression");
             self.inc();
 
-            match self.peek() {
-                Some(Token::Plus) => {
-                    self.inc();
-                    let right = self.parse_expr();
-                    return Expression {
-                        variant: ExpressionVariant::BinaryExpr(
-                            Box::new(expr),
-                            Box::new(right),
-                            BinOp::Add,
-                        ),
-                    };
-                }
-                Some(Token::Minus) => {
-                    self.inc();
-                    let right = self.parse_expr();
-                    return Expression {
-                        variant: ExpressionVariant::BinaryExpr(
-                            Box::new(expr),
-                            Box::new(right),
-                            BinOp::Sub,
-                        ),
-                    };
-                }
-                Some(Token::Star) => {
-                    self.inc();
-                    let right = self.parse_expr();
-                    return Expression {
-                        variant: ExpressionVariant::BinaryExpr(
-                            Box::new(expr),
-                            Box::new(right),
-                            BinOp::Mul,
-                        ),
-                    };
-                }
+            if self.peek().is_some_and(|x| x.is_binary_op()) {
+                return self.climb_precedence(expr, 0);
+            }
 
+            return expr;
+        }
+
+        todo!("Error handling: Expected expression");
+    }
+
+    fn climb_precedence(&mut self, mut lhs: Expression, min_precedence: usize) -> Expression {
+        let mut lookahead = self.peek().unwrap().to_owned();
+        while lookahead.is_binary_op() && lookahead.precedence() >= min_precedence {
+            let op = lookahead;
+            self.inc();
+            let mut rhs = Expression {
+                variant: ExpressionVariant::Term(self.parse_term()),
+            };
+
+            lookahead = self.peek().unwrap().to_owned();
+            while lookahead.is_binary_op() && lookahead.precedence() > op.precedence() {
+                // FIXME: this doesn't handle right-associative operators correctly
+                rhs = self.climb_precedence(rhs, op.precedence() + 1);
+                lookahead = self.peek().unwrap().to_owned();
+            }
+
+            lhs = Expression {
+                variant: ExpressionVariant::BinaryExpr(Box::new(lhs), Box::new(rhs), op.into()),
+            }
+        }
+
+        lhs
+    }
+
+    fn parse_term(&mut self) -> Term {
+        if let Some(token) = self.peek() {
+            match token {
+                Token::Int(value) => {
+                    let value = *value;
+                    self.inc();
+
+                    return Term::IntLit(value);
+                }
+                Token::Ident(name) => {
+                    let name = name.to_string();
+                    self.inc();
+
+                    return Term::Identifier(name);
+                }
                 _ => {
-                    return expr;
+                    todo!("Error handling: Expected term, found: {:?}", token);
                 }
             }
         }
 
-        todo!("Error handling: Expected expression");
+        todo!("Error handling: Expected token, found none");
     }
 
     fn parse_ident(&mut self) -> Identifier {
@@ -279,11 +309,11 @@ impl TryFrom<Token> for Expression {
     fn try_from(token: Token) -> Result<Self, Self::Error> {
         match token {
             Token::Int(n) => {
-                let variant = ExpressionVariant::IntLit(n);
+                let variant = ExpressionVariant::Term(Term::IntLit(n));
                 Ok(Expression { variant })
             }
             Token::Ident(ident) => {
-                let variant = ExpressionVariant::Identifier(ident.to_string());
+                let variant = ExpressionVariant::Term(Term::Identifier(ident.to_string()));
                 Ok(Expression { variant })
             }
             _ => Err(()),
@@ -314,7 +344,7 @@ mod tests {
             Program {
                 statements: vec![Statement {
                     variant: StatementVariant::Exit(Expression {
-                        variant: ExpressionVariant::IntLit(1),
+                        variant: ExpressionVariant::Term(Term::IntLit(1)),
                     }),
                 }],
             }
@@ -344,7 +374,7 @@ mod tests {
                             name: "x".to_string()
                         },
                         expr: Expression {
-                            variant: ExpressionVariant::IntLit(420),
+                            variant: ExpressionVariant::Term(Term::IntLit(420)),
                         },
                     },
                 }],
@@ -379,10 +409,12 @@ mod tests {
                         expr: Expression {
                             variant: ExpressionVariant::BinaryExpr(
                                 Box::new(Expression {
-                                    variant: ExpressionVariant::Identifier("y".to_string()),
+                                    variant: ExpressionVariant::Term(Term::Identifier(
+                                        "y".to_string()
+                                    )),
                                 }),
                                 Box::new(Expression {
-                                    variant: ExpressionVariant::IntLit(2),
+                                    variant: ExpressionVariant::Term(Term::IntLit(2)),
                                 }),
                                 BinOp::Add
                             ),

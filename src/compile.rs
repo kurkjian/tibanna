@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
-    parser::{BinOp, Expression, ExpressionVariant, Program, Statement, StatementVariant},
+    parser::{BinOp, Expression, ExpressionVariant, Program, Statement, StatementVariant, Term},
 };
 
 const EXIT_SYSCALL: usize = 60;
@@ -64,26 +64,11 @@ impl Compiler {
         match stmt.variant {
             StatementVariant::Exit(expr) => {
                 match expr.variant {
-                    ExpressionVariant::Identifier(name) => {
-                        let loc = identifiers
-                            .get(&name)
-                            .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
-                        let mem_ref = match loc {
-                            VariableLocation::Offset(offset) => MemRef {
-                                reg: Reg::Rbp,
-                                offset: *offset,
-                            },
-                        };
-
+                    ExpressionVariant::Term(term) => {
+                        self.compile_term(term, identifiers);
                         self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                             Reg::Rdi,
-                            Arg64::Mem(mem_ref),
-                        )));
-                    }
-                    ExpressionVariant::IntLit(value) => {
-                        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                            Reg::Rdi,
-                            Arg64::Unsigned(value),
+                            Arg64::Reg(Reg::Rax),
                         )));
                     }
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
@@ -105,27 +90,30 @@ impl Compiler {
             }
             StatementVariant::Let { ident, expr } => {
                 let arg = match expr.variant {
-                    ExpressionVariant::Identifier(name) => {
-                        let loc = identifiers
-                            .get(&name)
-                            .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
-                        let offset = match loc {
-                            VariableLocation::Offset(offset) => *offset,
-                        };
-                        let mem_ref = MemRef {
-                            reg: Reg::Rbp,
-                            offset,
-                        };
-                        identifiers.insert(ident.name, VariableLocation::Offset(self.stack_offset));
+                    ExpressionVariant::Term(term) => match term {
+                        Term::Identifier(name) => {
+                            let loc = identifiers
+                                .get(&name)
+                                .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
+                            let offset = match loc {
+                                VariableLocation::Offset(offset) => *offset,
+                            };
+                            let mem_ref = MemRef {
+                                reg: Reg::Rbp,
+                                offset,
+                            };
+                            identifiers
+                                .insert(ident.name, VariableLocation::Offset(self.stack_offset));
 
-                        Arg64::Mem(mem_ref)
-                    }
-                    ExpressionVariant::IntLit(value) => {
-                        let loc = VariableLocation::Offset(self.stack_offset);
-                        identifiers.insert(ident.name, loc);
+                            Arg64::Mem(mem_ref)
+                        }
+                        Term::IntLit(value) => {
+                            let loc = VariableLocation::Offset(self.stack_offset);
+                            identifiers.insert(ident.name, loc);
 
-                        Arg64::Unsigned(value)
-                    }
+                            Arg64::Unsigned(value)
+                        }
+                    },
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers);
                         self.compile_expr(*rhs, identifiers);
@@ -180,6 +168,7 @@ impl Compiler {
                     VariableLocation::Offset(offset) => *offset,
                 };
 
+                self.instructions.push(Instruction::Pop(Reg::Rax));
                 self.instructions.push(Instruction::Mov(MovArgs::ToMem(
                     MemRef {
                         reg: Reg::Rbp,
@@ -197,11 +186,8 @@ impl Compiler {
         identifiers: &mut HashMap<String, VariableLocation>,
     ) {
         match expr.variant {
-            ExpressionVariant::IntLit(value) => {
-                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                    Reg::Rax,
-                    Arg64::Unsigned(value),
-                )));
+            ExpressionVariant::Term(term) => {
+                self.compile_term(term, identifiers);
                 self.instructions.push(Instruction::Push(Reg::Rax));
             }
             ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
@@ -212,8 +198,20 @@ impl Compiler {
 
                 self.instructions
                     .push(bin_op_to_instr(op, Reg::Rax, Reg::Rbx));
+                self.instructions.push(Instruction::Push(Reg::Rax));
             }
-            ExpressionVariant::Identifier(name) => {
+        }
+    }
+
+    fn compile_term(&mut self, term: Term, identifiers: &HashMap<String, VariableLocation>) {
+        match term {
+            Term::IntLit(value) => {
+                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
+                    Reg::Rax,
+                    Arg64::Unsigned(value),
+                )));
+            }
+            Term::Identifier(name) => {
                 let var = identifiers
                     .get(&name)
                     .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
@@ -228,7 +226,6 @@ impl Compiler {
                         offset,
                     }),
                 )));
-                self.instructions.push(Instruction::Push(Reg::Rax));
             }
         }
     }
