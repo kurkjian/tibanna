@@ -53,8 +53,6 @@ impl Compiler {
             self.compile_statement(stmt, &mut identifiers);
         }
 
-        println!("{:?}", self.instructions);
-
         self.instructions
     }
 
@@ -174,6 +172,21 @@ impl Compiler {
                 }
 
                 self.instructions.push(Instruction::Label(label));
+            }
+            StatementVariant::Assignment { ident, expr } => {
+                self.compile_expr(expr, identifiers);
+                let loc = identifiers.get(&ident.name).expect("identifier not found");
+                let offset = match loc {
+                    VariableLocation::Offset(offset) => *offset,
+                };
+
+                self.instructions.push(Instruction::Mov(MovArgs::ToMem(
+                    MemRef {
+                        reg: Reg::Rbp,
+                        offset,
+                    },
+                    Reg::Rax,
+                )))
             }
         }
     }

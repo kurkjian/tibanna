@@ -21,6 +21,10 @@ pub enum StatementVariant {
         cond: Expression,
         then: Vec<Statement>,
     },
+    Assignment {
+        ident: Identifier,
+        expr: Expression,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -115,6 +119,19 @@ impl Parser {
                     end_of_scope = true;
                     Statement {
                         variant: StatementVariant::If { cond, then: body },
+                    }
+                }
+                Token::Ident(name) => {
+                    let name = name.to_owned();
+                    self.inc();
+
+                    self.parse_eq();
+                    let expr = self.parse_expr();
+                    Statement {
+                        variant: StatementVariant::Assignment {
+                            ident: Identifier { name },
+                            expr,
+                        },
                     }
                 }
                 _ => {
