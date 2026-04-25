@@ -19,6 +19,7 @@ $$
     \begin{cases}
         \text{[expr] + [expr]} \\
         \text{[expr] - [expr]} \\
+        \text{[expr]} \cdot \text{[expr]} \\
     \end{cases} \\
 \text{scope} &\to \text{[stmt]}^* \\
 \text{term} &\to

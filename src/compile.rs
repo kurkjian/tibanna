@@ -53,6 +53,8 @@ impl Compiler {
             self.compile_statement(stmt, &mut identifiers);
         }
 
+        println!("{:?}", self.instructions);
+
         self.instructions
     }
 
@@ -89,8 +91,8 @@ impl Compiler {
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers);
                         self.compile_expr(*rhs, identifiers);
-                        self.instructions.push(Instruction::Pop(Reg::Rdi));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
+                        self.instructions.push(Instruction::Pop(Reg::Rdi));
 
                         self.instructions
                             .push(bin_op_to_instr(op, Reg::Rdi, Reg::Rax));
@@ -243,5 +245,6 @@ fn bin_op_to_instr(op: BinOp, reg1: Reg, reg2: Reg) -> Instruction {
     match op {
         BinOp::Add => Instruction::Add(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
         BinOp::Sub => Instruction::Sub(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+        BinOp::Mul => Instruction::Mul(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
     }
 }

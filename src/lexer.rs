@@ -15,6 +15,7 @@ pub enum Token {
     Equal,
     Plus,
     Minus,
+    Star,
     If,
 }
 
@@ -66,6 +67,10 @@ impl<'a> Lexer<'a> {
                 '-' => {
                     iter.next();
                     tokens.push(Token::Minus);
+                }
+                '*' => {
+                    iter.next();
+                    tokens.push(Token::Star);
                 }
                 '/' => {
                     iter.next();

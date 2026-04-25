@@ -4,11 +4,14 @@ pub enum Instruction {
     Directive(String, String),
     Label(String),
     Syscall,
+
     Push(Reg),
     Pop(Reg),
     Mov(MovArgs),
+
     Add(BinArgs),
     Sub(BinArgs),
+    Mul(BinArgs),
     Cmp(BinArgs),
 
     Jne(String),
@@ -33,6 +36,7 @@ impl fmt::Display for Instruction {
             Instruction::Mov(mov) => write!(f, "{}", mov),
             Instruction::Add(args) => write!(f, "add {}", args),
             Instruction::Sub(args) => write!(f, "sub {}", args),
+            Instruction::Mul(args) => write!(f, "imul {}", args),
             Instruction::Cmp(args) => write!(f, "cmp {}", args),
             Instruction::Jne(label) => write!(f, "jne {}", label),
             Instruction::Je(label) => write!(f, "je {}", label),

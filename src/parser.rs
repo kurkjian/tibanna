@@ -39,6 +39,7 @@ pub enum ExpressionVariant {
 pub enum BinOp {
     Add,
     Sub,
+    Mul,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -166,6 +167,18 @@ impl Parser {
                         ),
                     };
                 }
+                Some(Token::Star) => {
+                    self.inc();
+                    let right = self.parse_expr();
+                    return Expression {
+                        variant: ExpressionVariant::BinaryExpr(
+                            Box::new(expr),
+                            Box::new(right),
+                            BinOp::Mul,
+                        ),
+                    };
+                }
+
                 _ => {
                     return expr;
                 }
