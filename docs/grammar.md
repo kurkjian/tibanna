@@ -7,9 +7,9 @@ $$
     \begin{cases}
         exit(\text{[expr]}); \\
         let \space \text{[ident]} = \text{[expr]}; \\
-        if \space \text{[expr]} \space \{[scope]\} \\
+        if \space \text{[expr]} \space \{\text{[scope]}\} \space \text{[else\_clause]} \\
         \text{[ident]} = \text{[expr]}; \\
-        \{[scope]\} \\
+        \{\text{[scope]}\} \\
     \end{cases} \\
 \text{expr} &\to
     \begin{cases}
@@ -29,6 +29,12 @@ $$
         \text{[expr]} \space \text{!=} \space \text{[expr]} \\
     \end{cases} \\
 \text{scope} &\to \text{[stmt]}^* \\
+\text{else\_clause} &\to
+    \begin{cases}
+        else \space if \space \text{[expr]} \space \{\text{[scope]}\} \space \text{[else\_clause]} \\
+        else \space \{\text{[scope]}\} \\
+        \epsilon
+    \end{cases} \\
 \text{term} &\to
     \begin{cases}
         \text{ident} \\

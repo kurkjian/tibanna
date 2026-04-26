@@ -20,6 +20,7 @@ pub enum StatementVariant {
     If {
         cond: Expression,
         then: Vec<Statement>,
+        els: Option<ElseClause>,
     },
     Assignment {
         ident: Identifier,
@@ -36,6 +37,13 @@ pub struct Expression {
 pub enum ExpressionVariant {
     BinaryExpr(Box<Expression>, Box<Expression>, BinOp),
     Term(Term),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ElseClause {
+    pub cond: Option<Expression>,
+    pub body: Vec<Statement>,
+    pub els: Box<Option<ElseClause>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -154,8 +162,14 @@ impl Parser {
                     self.parse_brace(false);
 
                     end_of_scope = true;
+
+                    let els = self.parse_else();
                     Statement {
-                        variant: StatementVariant::If { cond, then: body },
+                        variant: StatementVariant::If {
+                            cond,
+                            then: body,
+                            els,
+                        },
                     }
                 }
                 Token::Ident(name) => {
@@ -256,6 +270,35 @@ impl Parser {
         }
 
         lhs
+    }
+
+    fn parse_else(&mut self) -> Option<ElseClause> {
+        if let Some(Token::Else) = self.peek() {
+            self.inc();
+
+            let mut cond = None;
+            if self.peek().is_some_and(|x| *x == Token::If) {
+                self.inc();
+                cond = Some(self.parse_expr());
+            }
+            self.parse_brace(true);
+
+            let mut body = Vec::new();
+            while !matches!(self.peek(), Some(Token::CloseBrace)) {
+                let statement = self.parse_statement();
+                body.push(statement);
+            }
+
+            self.parse_brace(false);
+
+            Some(ElseClause {
+                cond,
+                body,
+                els: Box::new(self.parse_else()),
+            })
+        } else {
+            None
+        }
     }
 
     fn parse_term(&mut self) -> Term {
@@ -521,6 +564,7 @@ mod tests {
                                 },
                             },
                         }],
+                        els: None,
                     },
                 }],
             }
@@ -599,6 +643,7 @@ mod tests {
                                 },
                             },
                         }],
+                        els: None,
                     },
                 }],
             }

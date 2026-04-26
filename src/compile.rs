@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
-    parser::{BinOp, Expression, ExpressionVariant, Program, Statement, StatementVariant, Term},
+    parser::{
+        BinOp, ElseClause, Expression, ExpressionVariant, Program, Statement, StatementVariant,
+        Term,
+    },
 };
 
 const EXIT_SYSCALL: usize = 60;
@@ -146,36 +149,8 @@ impl Compiler {
                 // Point stack offset to next slot reserved for local vars
                 self.stack_offset += WORD_SIZE;
             }
-            StatementVariant::If { cond, then } => {
-                let implicit_cmp = if let Expression {
-                    variant: ExpressionVariant::BinaryExpr(_, _, ref op),
-                } = cond
-                {
-                    !op.is_cmp()
-                } else {
-                    false
-                };
-
-                self.compile_expr(cond, identifiers);
-
-                // Implicit '!= 0' for statements like 'if x + 1'
-                if implicit_cmp {
-                    self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
-                        Reg::Rax,
-                        Arg64::Unsigned(0),
-                    )));
-                    let label = format!("_if{}", self.seq());
-                    self.instructions.push(Instruction::Je(label.clone()));
-                }
-
-                let label = find_last_jmp_label(&self.instructions)
-                    .expect("Must find jump label")
-                    .to_string();
-                for stmt in then {
-                    self.compile_statement(stmt, identifiers);
-                }
-
-                self.instructions.push(Instruction::Label(label));
+            StatementVariant::If { cond, then, els } => {
+                self.compile_if(identifiers, cond, then, els);
             }
             StatementVariant::Assignment { ident, expr } => {
                 self.compile_expr(expr, identifiers);
@@ -217,6 +192,54 @@ impl Compiler {
 
                 if !op.is_cmp() {
                     self.instructions.push(Instruction::Push(Reg::Rax));
+                }
+            }
+        }
+    }
+
+    fn compile_if(
+        &mut self,
+        identifiers: &mut HashMap<String, VariableLocation>,
+        cond: Expression,
+        then: Vec<Statement>,
+        els: Option<ElseClause>,
+    ) {
+        let implicit_cmp = if let Expression {
+            variant: ExpressionVariant::BinaryExpr(_, _, ref op),
+        } = cond
+        {
+            !op.is_cmp()
+        } else {
+            false
+        };
+
+        self.compile_expr(cond, identifiers);
+
+        // Implicit '!= 0' for statements like 'if x + 1'
+        if implicit_cmp {
+            self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
+                Reg::Rax,
+                Arg64::Unsigned(0),
+            )));
+            let label = format!("_if{}", self.seq());
+            self.instructions.push(Instruction::Je(label.clone()));
+        }
+
+        let label = find_last_jmp_label(&self.instructions)
+            .expect("Must find jump label")
+            .to_string();
+        for stmt in then {
+            self.compile_statement(stmt, identifiers);
+        }
+
+        self.instructions.push(Instruction::Label(label));
+
+        if let Some(clause) = els {
+            if let Some(cond) = clause.cond {
+                self.compile_if(identifiers, cond, clause.body, *clause.els);
+            } else {
+                for stmt in clause.body {
+                    self.compile_statement(stmt, identifiers);
                 }
             }
         }

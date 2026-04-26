@@ -132,3 +132,39 @@ fn test_neq() {
     let status = compile_and_run(prog);
     assert_eq!(status.code(), Some(1));
 }
+
+#[test]
+fn test_else() {
+    let prog = r#"
+        let x = 5 + 3;
+        let y = 9 + 7;
+        if x == y {
+            exit(1);
+        } else {
+            exit(2);
+        }
+        exit(3);
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
+fn test_elif() {
+    let prog = r#"
+        let x = 5 + 3;
+        let y = 9 + 7;
+        if x == y {
+            exit(1);
+        } else if x < y {
+            exit(2);
+        } else {
+            exit(3);
+        }
+        exit(4);
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(2));
+}

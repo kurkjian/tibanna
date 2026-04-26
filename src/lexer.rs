@@ -17,6 +17,7 @@ pub enum Token {
     Minus,
     Star,
     If,
+    Else,
     Lt,
     Leq,
     Gt,
@@ -178,6 +179,7 @@ impl<'a> Lexer<'a> {
             "exit" => Token::Exit,
             "let" => Token::Let,
             "if" => Token::If,
+            "else" => Token::Else,
             _ => Token::Ident(ident),
         };
 
