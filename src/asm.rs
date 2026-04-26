@@ -14,8 +14,12 @@ pub enum Instruction {
     Mul(BinArgs),
     Cmp(BinArgs),
 
-    Jne(String),
     Je(String),
+    Jne(String),
+    Jg(String),
+    Jge(String),
+    Jl(String),
+    Jle(String),
     Jmp(String),
 }
 
@@ -38,8 +42,12 @@ impl fmt::Display for Instruction {
             Instruction::Sub(args) => write!(f, "sub {}", args),
             Instruction::Mul(args) => write!(f, "imul {}", args),
             Instruction::Cmp(args) => write!(f, "cmp {}", args),
-            Instruction::Jne(label) => write!(f, "jne {}", label),
             Instruction::Je(label) => write!(f, "je {}", label),
+            Instruction::Jne(label) => write!(f, "jne {}", label),
+            Instruction::Jle(label) => write!(f, "jle {}", label),
+            Instruction::Jl(label) => write!(f, "jl {}", label),
+            Instruction::Jge(label) => write!(f, "jge {}", label),
+            Instruction::Jg(label) => write!(f, "jg {}", label),
             Instruction::Jmp(label) => write!(f, "jmp {}", label),
         }
     }

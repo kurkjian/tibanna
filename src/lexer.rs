@@ -17,9 +17,23 @@ pub enum Token {
     Minus,
     Star,
     If,
+    Lt,
+    Leq,
+    Gt,
+    Geq,
+    EqEq,
+    Neq,
+    Bang,
 }
 
 impl Token {
+    pub fn is_cmp(&self) -> bool {
+        matches!(
+            self,
+            Token::Lt | Token::Leq | Token::Gt | Token::Geq | Token::EqEq | Token::Neq
+        )
+    }
+
     pub fn is_binary_op(&self) -> bool {
         matches!(self, Token::Plus | Token::Minus | Token::Star)
     }
@@ -72,7 +86,12 @@ impl<'a> Lexer<'a> {
                 }
                 '=' => {
                     iter.next();
-                    tokens.push(Token::Equal);
+                    if iter.peek() == Some(&'=') {
+                        iter.next();
+                        tokens.push(Token::EqEq);
+                    } else {
+                        tokens.push(Token::Equal);
+                    }
                 }
                 '+' => {
                     iter.next();
@@ -94,6 +113,34 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 }
+                '<' => {
+                    iter.next();
+                    if iter.peek() == Some(&'=') {
+                        iter.next();
+                        tokens.push(Token::Leq);
+                    } else {
+                        tokens.push(Token::Lt);
+                    }
+                }
+                '>' => {
+                    iter.next();
+                    if iter.peek() == Some(&'=') {
+                        iter.next();
+                        tokens.push(Token::Geq);
+                    } else {
+                        tokens.push(Token::Gt);
+                    }
+                }
+                '!' => {
+                    iter.next();
+                    if iter.peek() == Some(&'=') {
+                        iter.next();
+                        tokens.push(Token::Neq);
+                    } else {
+                        tokens.push(Token::Bang);
+                    }
+                }
+
                 char if char.is_whitespace() => {
                     iter.next();
                 }

@@ -21,6 +21,12 @@ $$
         \text{[expr] + [expr]} \\
         \text{[expr] - [expr]} \\
         \text{[expr]} \cdot \text{[expr]} \\
+        \text{[expr]} < \text{[expr]} \\
+        \text{[expr]} <= \text{[expr]} \\
+        \text{[expr]} > \text{[expr]} \\
+        \text{[expr]} >= \text{[expr]} \\
+        \text{[expr]} == \text{[expr]} \\
+        \text{[expr]} \space \text{!=} \space \text{[expr]} \\
     \end{cases} \\
 \text{scope} &\to \text{[stmt]}^* \\
 \text{term} &\to

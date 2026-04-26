@@ -44,11 +44,26 @@ pub enum Term {
     IntLit(usize),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BinOp {
     Add,
     Sub,
     Mul,
+    Lt,
+    Leq,
+    Gt,
+    Geq,
+    Eq,
+    Neq,
+}
+
+impl BinOp {
+    pub fn is_cmp(&self) -> bool {
+        matches!(
+            self,
+            BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq | BinOp::Eq | BinOp::Neq
+        )
+    }
 }
 
 impl From<Token> for BinOp {
@@ -57,6 +72,12 @@ impl From<Token> for BinOp {
             Token::Plus => BinOp::Add,
             Token::Minus => BinOp::Sub,
             Token::Star => BinOp::Mul,
+            Token::Lt => BinOp::Lt,
+            Token::Leq => BinOp::Leq,
+            Token::Gt => BinOp::Gt,
+            Token::Geq => BinOp::Geq,
+            Token::EqEq => BinOp::Eq,
+            Token::Neq => BinOp::Neq,
             _ => unreachable!(),
         }
     }
@@ -178,7 +199,33 @@ impl Parser {
             self.inc();
 
             if self.peek().is_some_and(|x| x.is_binary_op()) {
-                return self.climb_precedence(expr, 0);
+                let expr = self.climb_precedence(expr, 0);
+                if self.peek().is_some_and(|x| x.is_cmp()) {
+                    let cmp = self.peek().unwrap().to_owned();
+                    self.inc();
+
+                    let rhs = self.parse_expr();
+                    return Expression {
+                        variant: ExpressionVariant::BinaryExpr(
+                            Box::new(expr),
+                            Box::new(rhs),
+                            BinOp::from(cmp),
+                        ),
+                    };
+                }
+
+                return expr;
+            } else if self.peek().is_some_and(|x| x.is_cmp()) {
+                let cmp = self.peek().unwrap().to_owned();
+                self.inc();
+                let rhs = self.parse_expr();
+                return Expression {
+                    variant: ExpressionVariant::BinaryExpr(
+                        Box::new(expr),
+                        Box::new(rhs),
+                        BinOp::from(cmp),
+                    ),
+                };
             }
 
             return expr;
@@ -419,6 +466,139 @@ mod tests {
                                 BinOp::Add
                             ),
                         },
+                    },
+                }],
+            }
+        )
+    }
+
+    #[test]
+    fn test_cond_simple_inequality() {
+        let tokens = vec![
+            Token::If,
+            Token::Ident("x".to_string()),
+            Token::Lt,
+            Token::Ident("y".to_string()),
+            Token::OpenBrace,
+            Token::Let,
+            Token::Ident("z".to_string()),
+            Token::Equal,
+            Token::Int(1),
+            Token::Semi,
+            Token::CloseBrace,
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let p = parser.parse();
+
+        assert_eq!(
+            p,
+            Program {
+                statements: vec![Statement {
+                    variant: StatementVariant::If {
+                        cond: Expression {
+                            variant: ExpressionVariant::BinaryExpr(
+                                Box::new(Expression {
+                                    variant: ExpressionVariant::Term(Term::Identifier(
+                                        "x".to_string()
+                                    )),
+                                }),
+                                Box::new(Expression {
+                                    variant: ExpressionVariant::Term(Term::Identifier(
+                                        "y".to_string()
+                                    )),
+                                }),
+                                BinOp::Lt,
+                            ),
+                        },
+                        then: vec![Statement {
+                            variant: StatementVariant::Let {
+                                ident: Identifier {
+                                    name: "z".to_string()
+                                },
+                                expr: Expression {
+                                    variant: ExpressionVariant::Term(Term::IntLit(1)),
+                                },
+                            },
+                        }],
+                    },
+                }],
+            }
+        )
+    }
+
+    #[test]
+    fn test_cond_ineq_with_ops() {
+        let tokens = vec![
+            Token::If,
+            Token::Ident("x".to_string()),
+            Token::Plus,
+            Token::Int(1),
+            Token::Lt,
+            Token::Ident("y".to_string()),
+            Token::Star,
+            Token::Ident("z".to_string()),
+            Token::OpenBrace,
+            Token::Let,
+            Token::Ident("w".to_string()),
+            Token::Equal,
+            Token::Int(1),
+            Token::Semi,
+            Token::CloseBrace,
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let p = parser.parse();
+
+        // FIXME: wtf is this. find a better way to write tests like this
+        assert_eq!(
+            p,
+            Program {
+                statements: vec![Statement {
+                    variant: StatementVariant::If {
+                        cond: Expression {
+                            variant: ExpressionVariant::BinaryExpr(
+                                Box::new(Expression {
+                                    variant: ExpressionVariant::BinaryExpr(
+                                        Box::new(Expression {
+                                            variant: ExpressionVariant::Term(Term::Identifier(
+                                                "x".to_string()
+                                            )),
+                                        }),
+                                        Box::new(Expression {
+                                            variant: ExpressionVariant::Term(Term::IntLit(1)),
+                                        }),
+                                        BinOp::Add,
+                                    ),
+                                }),
+                                Box::new(Expression {
+                                    variant: ExpressionVariant::BinaryExpr(
+                                        Box::new(Expression {
+                                            variant: ExpressionVariant::Term(Term::Identifier(
+                                                "y".to_string()
+                                            )),
+                                        }),
+                                        Box::new(Expression {
+                                            variant: ExpressionVariant::Term(Term::Identifier(
+                                                "z".to_string()
+                                            )),
+                                        }),
+                                        BinOp::Mul,
+                                    ),
+                                }),
+                                BinOp::Lt,
+                            ),
+                        },
+                        then: vec![Statement {
+                            variant: StatementVariant::Let {
+                                ident: Identifier {
+                                    name: "w".to_string()
+                                },
+                                expr: Expression {
+                                    variant: ExpressionVariant::Term(Term::IntLit(1)),
+                                },
+                            },
+                        }],
                     },
                 }],
             }

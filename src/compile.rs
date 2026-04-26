@@ -77,8 +77,8 @@ impl Compiler {
                         self.instructions.push(Instruction::Pop(Reg::Rax));
                         self.instructions.push(Instruction::Pop(Reg::Rdi));
 
-                        self.instructions
-                            .push(bin_op_to_instr(op, Reg::Rdi, Reg::Rax));
+                        let instr = self.bin_op_to_instr(op, Reg::Rdi, Reg::Rax);
+                        self.instructions.extend(instr);
                     }
                 }
 
@@ -120,8 +120,8 @@ impl Compiler {
                         self.instructions.push(Instruction::Pop(Reg::Rbx));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
 
-                        self.instructions
-                            .push(bin_op_to_instr(op, Reg::Rax, Reg::Rbx));
+                        let instr = self.bin_op_to_instr(op, Reg::Rax, Reg::Rbx);
+                        self.instructions.extend(instr);
 
                         let loc = VariableLocation::Offset(self.stack_offset);
                         identifiers.insert(ident.name, loc);
@@ -147,14 +147,30 @@ impl Compiler {
                 self.stack_offset += WORD_SIZE;
             }
             StatementVariant::If { cond, then } => {
-                self.compile_expr(cond, identifiers);
-                self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
-                    Reg::Rax,
-                    Arg64::Unsigned(0),
-                )));
+                let implicit_cmp = if let Expression {
+                    variant: ExpressionVariant::BinaryExpr(_, _, ref op),
+                } = cond
+                {
+                    !op.is_cmp()
+                } else {
+                    false
+                };
 
-                let label = format!("_if{}", self.seq());
-                self.instructions.push(Instruction::Je(label.clone()));
+                self.compile_expr(cond, identifiers);
+
+                // Implicit '!= 0' for statements like 'if x + 1'
+                if implicit_cmp {
+                    self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
+                        Reg::Rax,
+                        Arg64::Unsigned(0),
+                    )));
+                    let label = format!("_if{}", self.seq());
+                    self.instructions.push(Instruction::Je(label.clone()));
+                }
+
+                let label = find_last_jmp_label(&self.instructions)
+                    .expect("Must find jump label")
+                    .to_string();
                 for stmt in then {
                     self.compile_statement(stmt, identifiers);
                 }
@@ -196,9 +212,12 @@ impl Compiler {
                 self.instructions.push(Instruction::Pop(Reg::Rbx));
                 self.instructions.push(Instruction::Pop(Reg::Rax));
 
-                self.instructions
-                    .push(bin_op_to_instr(op, Reg::Rax, Reg::Rbx));
-                self.instructions.push(Instruction::Push(Reg::Rax));
+                let instr = self.bin_op_to_instr(op, Reg::Rax, Reg::Rbx);
+                self.instructions.extend(instr);
+
+                if !op.is_cmp() {
+                    self.instructions.push(Instruction::Push(Reg::Rax));
+                }
             }
         }
     }
@@ -234,6 +253,21 @@ impl Compiler {
         self.seq_no += 1;
         self.seq_no - 1
     }
+
+    fn bin_op_to_instr(&mut self, op: BinOp, reg1: Reg, reg2: Reg) -> Vec<Instruction> {
+        match op {
+            BinOp::Add => vec![Instruction::Add(BinArgs::ToReg(reg1, Arg64::Reg(reg2)))],
+            BinOp::Sub => vec![Instruction::Sub(BinArgs::ToReg(reg1, Arg64::Reg(reg2)))],
+            BinOp::Mul => vec![Instruction::Mul(BinArgs::ToReg(reg1, Arg64::Reg(reg2)))],
+            BinOp::Eq | BinOp::Gt | BinOp::Geq | BinOp::Lt | BinOp::Leq | BinOp::Neq => {
+                let label = format!("_if{}", self.seq());
+                vec![
+                    Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+                    to_jmp_instr(op, label),
+                ]
+            }
+        }
+    }
 }
 
 fn count_vars(statements: &[Statement]) -> usize {
@@ -251,10 +285,30 @@ fn count_vars(statements: &[Statement]) -> usize {
     count
 }
 
-fn bin_op_to_instr(op: BinOp, reg1: Reg, reg2: Reg) -> Instruction {
+fn to_jmp_instr(op: BinOp, label: String) -> Instruction {
     match op {
-        BinOp::Add => Instruction::Add(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
-        BinOp::Sub => Instruction::Sub(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
-        BinOp::Mul => Instruction::Mul(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+        BinOp::Eq => Instruction::Jne(label),
+        BinOp::Neq => Instruction::Je(label),
+        BinOp::Gt => Instruction::Jle(label),
+        BinOp::Geq => Instruction::Jl(label),
+        BinOp::Lt => Instruction::Jge(label),
+        BinOp::Leq => Instruction::Jg(label),
+        _ => unreachable!(),
     }
+}
+
+fn find_last_jmp_label(instructions: &[Instruction]) -> Option<&str> {
+    instructions.iter().rev().find_map(|inst| {
+        if let Instruction::Jne(label)
+        | Instruction::Je(label)
+        | Instruction::Jle(label)
+        | Instruction::Jl(label)
+        | Instruction::Jge(label)
+        | Instruction::Jg(label) = inst
+        {
+            Some(label.as_str())
+        } else {
+            None
+        }
+    })
 }
