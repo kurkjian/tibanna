@@ -413,18 +413,13 @@ impl TryFrom<Token> for Expression {
 
 #[cfg(test)]
 mod tests {
+    use crate::lexer::Lexer;
+
     use super::*;
 
     #[test]
     fn test_exit() {
-        // exit(1);
-        let tokens = vec![
-            Token::Exit,
-            Token::OpenParen,
-            Token::Int(1),
-            Token::CloseParen,
-            Token::Semi,
-        ];
+        let tokens = Lexer::new("exit(1);").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
         let p = parser.parse();
@@ -432,25 +427,14 @@ mod tests {
         assert_eq!(
             p,
             Program {
-                statements: vec![Statement {
-                    variant: StatementVariant::Exit(Expression {
-                        variant: ExpressionVariant::Term(Term::IntLit(1)),
-                    }),
-                }],
+                statements: vec![exit(int(1))],
             }
-        )
+        );
     }
 
     #[test]
     fn test_let_assignment() {
-        // let x = 420;
-        let tokens = vec![
-            Token::Let,
-            Token::Ident("x".to_string()),
-            Token::Equal,
-            Token::Int(420),
-            Token::Semi,
-        ];
+        let tokens = Lexer::new("let x = 420;").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
         let p = parser.parse();
@@ -458,32 +442,14 @@ mod tests {
         assert_eq!(
             p,
             Program {
-                statements: vec![Statement {
-                    variant: StatementVariant::Let {
-                        ident: Identifier {
-                            name: "x".to_string()
-                        },
-                        expr: Expression {
-                            variant: ExpressionVariant::Term(Term::IntLit(420)),
-                        },
-                    },
-                }],
+                statements: vec![let_("x", int(420))],
             }
-        )
+        );
     }
 
     #[test]
     fn test_bin_op() {
-        // let x = y + 2
-        let tokens = vec![
-            Token::Let,
-            Token::Ident("x".to_string()),
-            Token::Equal,
-            Token::Ident("y".to_string()),
-            Token::Plus,
-            Token::Int(2),
-            Token::Semi,
-        ];
+        let tokens = Lexer::new("let x = y + 2;").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
         let p = parser.parse();
@@ -491,162 +457,91 @@ mod tests {
         assert_eq!(
             p,
             Program {
-                statements: vec![Statement {
-                    variant: StatementVariant::Let {
-                        ident: Identifier {
-                            name: "x".to_string()
-                        },
-                        expr: Expression {
-                            variant: ExpressionVariant::BinaryExpr(
-                                Box::new(Expression {
-                                    variant: ExpressionVariant::Term(Term::Identifier(
-                                        "y".to_string()
-                                    )),
-                                }),
-                                Box::new(Expression {
-                                    variant: ExpressionVariant::Term(Term::IntLit(2)),
-                                }),
-                                BinOp::Add
-                            ),
-                        },
-                    },
-                }],
+                statements: vec![let_("x", bin(ident("y"), BinOp::Add, int(2)))],
             }
-        )
+        );
     }
 
     #[test]
     fn test_cond_simple_inequality() {
-        let tokens = vec![
-            Token::If,
-            Token::Ident("x".to_string()),
-            Token::Lt,
-            Token::Ident("y".to_string()),
-            Token::OpenBrace,
-            Token::Let,
-            Token::Ident("z".to_string()),
-            Token::Equal,
-            Token::Int(1),
-            Token::Semi,
-            Token::CloseBrace,
-        ];
+        let tokens = Lexer::new("if x < y { let z = 1; }").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
         let p = parser.parse();
 
+        let cond = bin(ident("x"), BinOp::Lt, ident("y"));
         assert_eq!(
             p,
             Program {
-                statements: vec![Statement {
-                    variant: StatementVariant::If {
-                        cond: Expression {
-                            variant: ExpressionVariant::BinaryExpr(
-                                Box::new(Expression {
-                                    variant: ExpressionVariant::Term(Term::Identifier(
-                                        "x".to_string()
-                                    )),
-                                }),
-                                Box::new(Expression {
-                                    variant: ExpressionVariant::Term(Term::Identifier(
-                                        "y".to_string()
-                                    )),
-                                }),
-                                BinOp::Lt,
-                            ),
-                        },
-                        then: vec![Statement {
-                            variant: StatementVariant::Let {
-                                ident: Identifier {
-                                    name: "z".to_string()
-                                },
-                                expr: Expression {
-                                    variant: ExpressionVariant::Term(Term::IntLit(1)),
-                                },
-                            },
-                        }],
-                        els: None,
-                    },
-                }],
+                statements: vec![if_(cond, vec![let_("z", int(1))])],
             }
-        )
+        );
     }
 
     #[test]
     fn test_cond_ineq_with_ops() {
-        let tokens = vec![
-            Token::If,
-            Token::Ident("x".to_string()),
-            Token::Plus,
-            Token::Int(1),
-            Token::Lt,
-            Token::Ident("y".to_string()),
-            Token::Star,
-            Token::Ident("z".to_string()),
-            Token::OpenBrace,
-            Token::Let,
-            Token::Ident("w".to_string()),
-            Token::Equal,
-            Token::Int(1),
-            Token::Semi,
-            Token::CloseBrace,
-        ];
+        let tokens = Lexer::new("if x + 1 < y * z { let w = 1; }")
+            .tokenize()
+            .unwrap();
 
         let mut parser = Parser::new(tokens);
         let p = parser.parse();
 
-        // FIXME: wtf is this. find a better way to write tests like this
+        let cond = bin(
+            bin(ident("x"), BinOp::Add, int(1)),
+            BinOp::Lt,
+            bin(ident("y"), BinOp::Mul, ident("z")),
+        );
         assert_eq!(
             p,
             Program {
-                statements: vec![Statement {
-                    variant: StatementVariant::If {
-                        cond: Expression {
-                            variant: ExpressionVariant::BinaryExpr(
-                                Box::new(Expression {
-                                    variant: ExpressionVariant::BinaryExpr(
-                                        Box::new(Expression {
-                                            variant: ExpressionVariant::Term(Term::Identifier(
-                                                "x".to_string()
-                                            )),
-                                        }),
-                                        Box::new(Expression {
-                                            variant: ExpressionVariant::Term(Term::IntLit(1)),
-                                        }),
-                                        BinOp::Add,
-                                    ),
-                                }),
-                                Box::new(Expression {
-                                    variant: ExpressionVariant::BinaryExpr(
-                                        Box::new(Expression {
-                                            variant: ExpressionVariant::Term(Term::Identifier(
-                                                "y".to_string()
-                                            )),
-                                        }),
-                                        Box::new(Expression {
-                                            variant: ExpressionVariant::Term(Term::Identifier(
-                                                "z".to_string()
-                                            )),
-                                        }),
-                                        BinOp::Mul,
-                                    ),
-                                }),
-                                BinOp::Lt,
-                            ),
-                        },
-                        then: vec![Statement {
-                            variant: StatementVariant::Let {
-                                ident: Identifier {
-                                    name: "w".to_string()
-                                },
-                                expr: Expression {
-                                    variant: ExpressionVariant::Term(Term::IntLit(1)),
-                                },
-                            },
-                        }],
-                        els: None,
-                    },
-                }],
+                statements: vec![if_(cond, vec![let_("w", int(1))])],
             }
-        )
+        );
+    }
+
+    fn ident(name: &str) -> Expression {
+        Expression {
+            variant: ExpressionVariant::Term(Term::Identifier(name.to_string())),
+        }
+    }
+
+    fn int(n: usize) -> Expression {
+        Expression {
+            variant: ExpressionVariant::Term(Term::IntLit(n)),
+        }
+    }
+
+    fn exit(expr: Expression) -> Statement {
+        Statement {
+            variant: StatementVariant::Exit(expr),
+        }
+    }
+
+    fn bin(lhs: Expression, op: BinOp, rhs: Expression) -> Expression {
+        Expression {
+            variant: ExpressionVariant::BinaryExpr(Box::new(lhs), Box::new(rhs), op),
+        }
+    }
+
+    fn let_(name: &str, expr: Expression) -> Statement {
+        Statement {
+            variant: StatementVariant::Let {
+                ident: Identifier {
+                    name: name.to_string(),
+                },
+                expr,
+            },
+        }
+    }
+
+    fn if_(cond: Expression, then: Vec<Statement>) -> Statement {
+        Statement {
+            variant: StatementVariant::If {
+                cond,
+                then,
+                els: None,
+            },
+        }
     }
 }
