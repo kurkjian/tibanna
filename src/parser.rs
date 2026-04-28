@@ -1,4 +1,13 @@
-use crate::lexer::Token;
+use crate::lexer::{Token, TokenKind};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("unexpected token: found {0}, expected {1}")]
+    UnexpectedToken(Token, TokenKind),
+    #[error("missing token: expected {0}")]
+    MissingToken(TokenKind),
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Program {
@@ -126,25 +135,25 @@ impl Parser {
         self.index += 1;
     }
 
-    pub fn parse(&mut self) -> Program {
+    pub fn parse(&mut self) -> Result<Program, ParseError> {
         let mut statements = Vec::new();
         while self.peek().is_some() {
-            statements.push(self.parse_statement());
+            statements.push(self.parse_statement()?);
         }
 
-        Program { statements }
+        Ok(Program { statements })
     }
 
-    fn parse_statement(&mut self) -> Statement {
+    fn parse_statement(&mut self) -> Result<Statement, ParseError> {
         let mut end_of_scope = false;
         if let Some(token) = self.peek() {
             let statement = match token {
                 Token::Exit => {
                     self.inc();
 
-                    self.parse_paren(true);
-                    let expr = self.parse_expr();
-                    self.parse_paren(false);
+                    self.parse_paren(true)?;
+                    let expr = self.parse_expr()?;
+                    self.parse_paren(false)?;
 
                     Statement {
                         variant: StatementVariant::Exit(expr),
@@ -153,9 +162,9 @@ impl Parser {
                 Token::Let => {
                     self.inc();
 
-                    let ident = self.parse_ident();
-                    self.parse_eq();
-                    let expr = self.parse_expr();
+                    let ident = self.parse_ident()?;
+                    self.parse_eq()?;
+                    let expr = self.parse_expr()?;
 
                     Statement {
                         variant: StatementVariant::Let { ident, expr },
@@ -164,18 +173,18 @@ impl Parser {
                 Token::If => {
                     self.inc();
 
-                    let cond = self.parse_expr();
-                    self.parse_brace(true);
+                    let cond = self.parse_expr()?;
+                    self.parse_brace(true)?;
                     let mut body = Vec::new();
                     while !matches!(self.peek(), Some(Token::CloseBrace)) {
-                        let statement = self.parse_statement();
+                        let statement = self.parse_statement()?;
                         body.push(statement);
                     }
-                    self.parse_brace(false);
+                    self.parse_brace(false)?;
 
                     end_of_scope = true;
 
-                    let els = self.parse_else();
+                    let els = self.parse_else()?;
                     Statement {
                         variant: StatementVariant::If {
                             cond,
@@ -188,8 +197,8 @@ impl Parser {
                     let name = name.to_owned();
                     self.inc();
 
-                    self.parse_eq();
-                    let expr = self.parse_expr();
+                    self.parse_eq()?;
+                    let expr = self.parse_expr()?;
                     Statement {
                         variant: StatementVariant::Assignment {
                             ident: Identifier { name },
@@ -212,67 +221,71 @@ impl Parser {
                 );
             }
 
-            return statement;
+            return Ok(statement);
         }
 
         todo!("Error handling: Expected statement");
     }
 
-    fn parse_expr(&mut self) -> Expression {
+    fn parse_expr(&mut self) -> Result<Expression, ParseError> {
         if let Some(token) = self.peek() {
             let expr = Expression::try_from(token.to_owned())
                 .expect("Could not convert token to expression");
             self.inc();
 
             if self.peek().is_some_and(|x| x.is_binary_op()) {
-                let expr = self.climb_precedence(expr, 0);
+                let expr = self.climb_precedence(expr, 0)?;
                 if self.peek().is_some_and(|x| x.is_bool()) {
                     let op = self.peek().unwrap().to_owned();
                     self.inc();
 
-                    let rhs = self.parse_expr();
-                    return Expression {
+                    let rhs = self.parse_expr()?;
+                    return Ok(Expression {
                         variant: ExpressionVariant::BinaryExpr(
                             Box::new(expr),
                             Box::new(rhs),
                             BinOp::from(op),
                         ),
-                    };
+                    });
                 }
 
-                return expr;
+                return Ok(expr);
             } else if self.peek().is_some_and(|x| x.is_bool()) {
                 let op = self.peek().unwrap().to_owned();
                 self.inc();
-                let rhs = self.parse_expr();
-                return Expression {
+                let rhs = self.parse_expr()?;
+                return Ok(Expression {
                     variant: ExpressionVariant::BinaryExpr(
                         Box::new(expr),
                         Box::new(rhs),
                         BinOp::from(op),
                     ),
-                };
+                });
             }
 
-            return expr;
+            return Ok(expr);
         }
 
         todo!("Error handling: Expected expression");
     }
 
-    fn climb_precedence(&mut self, mut lhs: Expression, min_precedence: usize) -> Expression {
+    fn climb_precedence(
+        &mut self,
+        mut lhs: Expression,
+        min_precedence: usize,
+    ) -> Result<Expression, ParseError> {
         let mut lookahead = self.peek().unwrap().to_owned();
         while lookahead.is_binary_op() && lookahead.precedence() >= min_precedence {
             let op = lookahead;
             self.inc();
             let mut rhs = Expression {
-                variant: ExpressionVariant::Term(self.parse_term()),
+                variant: ExpressionVariant::Term(self.parse_term()?),
             };
 
             lookahead = self.peek().unwrap().to_owned();
             while lookahead.is_binary_op() && lookahead.precedence() > op.precedence() {
                 // FIXME: this doesn't handle right-associative operators correctly
-                rhs = self.climb_precedence(rhs, op.precedence() + 1);
+                rhs = self.climb_precedence(rhs, op.precedence() + 1)?;
                 lookahead = self.peek().unwrap().to_owned();
             }
 
@@ -281,135 +294,107 @@ impl Parser {
             }
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_else(&mut self) -> Option<ElseClause> {
+    fn parse_else(&mut self) -> Result<Option<ElseClause>, ParseError> {
         if let Some(Token::Else) = self.peek() {
             self.inc();
 
             let mut cond = None;
             if self.peek().is_some_and(|x| *x == Token::If) {
                 self.inc();
-                cond = Some(self.parse_expr());
+                cond = Some(self.parse_expr()?);
             }
-            self.parse_brace(true);
+            self.parse_brace(true)?;
 
             let mut body = Vec::new();
             while !matches!(self.peek(), Some(Token::CloseBrace)) {
-                let statement = self.parse_statement();
+                let statement = self.parse_statement()?;
                 body.push(statement);
             }
 
-            self.parse_brace(false);
+            self.parse_brace(false)?;
 
-            Some(ElseClause {
+            Ok(Some(ElseClause {
                 cond,
                 body,
-                els: Box::new(self.parse_else()),
-            })
+                els: Box::new(self.parse_else()?),
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    fn parse_term(&mut self) -> Term {
-        if let Some(token) = self.peek() {
-            match token {
-                Token::Int(value) => {
-                    let value = *value;
-                    self.inc();
-
-                    return Term::IntLit(value);
-                }
-                Token::Ident(name) => {
-                    let name = name.to_string();
-                    self.inc();
-
-                    return Term::Identifier(name);
-                }
-                Token::True => {
-                    self.inc();
-                    return Term::Bool(true);
-                }
-                Token::False => {
-                    self.inc();
-                    return Term::Bool(false);
-                }
-                _ => {
-                    todo!("Error handling: Expected term, found: {:?}", token);
-                }
+    fn parse_term(&mut self) -> Result<Term, ParseError> {
+        match self.peek() {
+            Some(Token::Int(value)) => {
+                let v = *value;
+                self.inc();
+                Ok(Term::IntLit(v))
             }
+            Some(Token::Ident(name)) => {
+                let name = name.clone();
+                self.inc();
+                Ok(Term::Identifier(name))
+            }
+            Some(Token::True) | Some(Token::False) => {
+                let val = matches!(self.peek(), Some(Token::True));
+                self.inc();
+                Ok(Term::Bool(val))
+            }
+            Some(token) => Err(ParseError::UnexpectedToken(token.clone(), TokenKind::Int)),
+            None => Err(ParseError::MissingToken(TokenKind::Term)),
         }
-
-        todo!("Error handling: Expected token, found none");
     }
 
-    fn parse_ident(&mut self) -> Identifier {
-        if let Some(token) = self.peek() {
-            match token {
-                Token::Ident(name) => {
-                    let name = name.to_string();
-                    self.inc();
-
-                    return Identifier { name };
-                }
-                _ => {
-                    todo!("Error handling: Expected identifier, found: {:?}", token);
-                }
+    fn parse_ident(&mut self) -> Result<Identifier, ParseError> {
+        match self.peek() {
+            Some(Token::Ident(name)) => {
+                let name = name.clone();
+                self.inc();
+                Ok(Identifier { name })
             }
+            Some(token) => Err(ParseError::UnexpectedToken(
+                token.clone(),
+                TokenKind::Identifier,
+            )),
+            None => Err(ParseError::MissingToken(TokenKind::Identifier)),
         }
+    }
+    fn parse_paren(&mut self, open: bool) -> Result<(), ParseError> {
+        let expected = if open {
+            TokenKind::OpenParen
+        } else {
+            TokenKind::CloseParen
+        };
 
-        todo!("Error handling: Expected token, found none");
+        self.expect(expected)
     }
 
-    fn parse_paren(&mut self, open: bool) {
-        if let Some(token) = self.peek() {
-            match (token, open) {
-                (Token::OpenParen, true) | (Token::CloseParen, false) => {
-                    self.inc();
-                    return;
-                }
-                _ => {
-                    todo!("Error handling: Expected paren, found: {:?}", token);
-                }
-            }
-        }
+    fn parse_brace(&mut self, open: bool) -> Result<(), ParseError> {
+        let expected = if open {
+            TokenKind::OpenBrace
+        } else {
+            TokenKind::CloseBrace
+        };
 
-        todo!("Error handling: Expected paren, found none");
+        self.expect(expected)
     }
 
-    fn parse_brace(&mut self, open: bool) {
-        if let Some(token) = self.peek() {
-            match (token, open) {
-                (Token::OpenBrace, true) | (Token::CloseBrace, false) => {
-                    self.inc();
-                    return;
-                }
-                _ => {
-                    todo!("Error handling: Expected brace, found: {:?}", token);
-                }
-            }
-        }
-
-        todo!("Error handling: Expected brace, found none");
+    fn parse_eq(&mut self) -> Result<(), ParseError> {
+        self.expect(TokenKind::Equal)
     }
 
-    fn parse_eq(&mut self) {
-        if let Some(token) = self.peek() {
-            match token {
-                Token::Equal => {
-                    self.inc();
-                    return;
-                }
-
-                _ => {
-                    todo!("Error handling: Expected eq, found: {:?}", token);
-                }
+    fn expect(&mut self, expected: TokenKind) -> Result<(), ParseError> {
+        match self.peek() {
+            Some(token) if token.kind() == expected => {
+                self.inc();
+                Ok(())
             }
+            Some(token) => Err(ParseError::UnexpectedToken(token.clone(), expected)),
+            None => Err(ParseError::MissingToken(expected)),
         }
-
-        todo!("Error handling: Expected eq, found none");
     }
 }
 
@@ -450,7 +435,7 @@ mod tests {
         let tokens = Lexer::new("exit(1);").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
-        let p = parser.parse();
+        let p = parser.parse().unwrap();
 
         assert_eq!(
             p,
@@ -465,7 +450,7 @@ mod tests {
         let tokens = Lexer::new("let x = 420;").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
-        let p = parser.parse();
+        let p = parser.parse().unwrap();
 
         assert_eq!(
             p,
@@ -480,7 +465,7 @@ mod tests {
         let tokens = Lexer::new("let x = y + 2;").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
-        let p = parser.parse();
+        let p = parser.parse().unwrap();
 
         assert_eq!(
             p,
@@ -495,7 +480,7 @@ mod tests {
         let tokens = Lexer::new("if x < y { let z = 1; }").tokenize().unwrap();
 
         let mut parser = Parser::new(tokens);
-        let p = parser.parse();
+        let p = parser.parse().unwrap();
 
         let cond = bin(ident("x"), BinOp::Lt, ident("y"));
         assert_eq!(
@@ -513,7 +498,7 @@ mod tests {
             .unwrap();
 
         let mut parser = Parser::new(tokens);
-        let p = parser.parse();
+        let p = parser.parse().unwrap();
 
         let cond = bin(
             bin(ident("x"), BinOp::Add, int(1)),

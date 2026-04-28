@@ -52,9 +52,9 @@ fn parse(prog: &mut str) -> Result<Program> {
     let tokens = lexer.tokenize()?;
 
     let mut parser = Parser::new(tokens);
-    let program = parser.parse();
-
-    Ok(program)
+    parser
+        .parse()
+        .map_err(|e| anyhow!(format!("parse err: {e:?}")))
 }
 
 fn link() -> Result<()> {

@@ -1,7 +1,16 @@
 use anyhow::Result;
 use std::{iter::Peekable, str::Chars};
+use thiserror::Error;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Error, Debug)]
+pub enum LexerError {
+    #[error("unknown token: {0}")]
+    UnknownToken(String),
+    #[error("invalid number: {0}")]
+    InvalidNumber(String),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, strum_macros::Display)]
 pub enum Token {
     Exit,
     OpenParen,
@@ -12,6 +21,39 @@ pub enum Token {
     Semi,
     Let,
     Ident(String),
+    Equal,
+    Plus,
+    Minus,
+    Star,
+    If,
+    Else,
+    Lt,
+    Leq,
+    Gt,
+    Geq,
+    EqEq,
+    Neq,
+    Bang,
+    True,
+    False,
+    Ampersand,
+    Pipe,
+    LogicalAnd,
+    LogicalOr,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, strum_macros::Display)]
+pub enum TokenKind {
+    Term, // ?
+    Exit,
+    OpenParen,
+    CloseParen,
+    OpenBrace,
+    CloseBrace,
+    Int,
+    Semi,
+    Let,
+    Identifier,
     Equal,
     Plus,
     Minus,
@@ -59,6 +101,39 @@ impl Token {
             _ => 0,
         }
     }
+
+    pub fn kind(&self) -> TokenKind {
+        match self {
+            Token::Int(_) => TokenKind::Int,
+            Token::Ident(_) => TokenKind::Identifier,
+            Token::OpenBrace => TokenKind::OpenBrace,
+            Token::CloseBrace => TokenKind::CloseBrace,
+            Token::OpenParen => TokenKind::OpenParen,
+            Token::CloseParen => TokenKind::CloseParen,
+            Token::Semi => TokenKind::Semi,
+            Token::Let => TokenKind::Let,
+            Token::Equal => TokenKind::Equal,
+            Token::Plus => TokenKind::Plus,
+            Token::Minus => TokenKind::Minus,
+            Token::Star => TokenKind::Star,
+            Token::If => TokenKind::If,
+            Token::Else => TokenKind::Else,
+            Token::Lt => TokenKind::Lt,
+            Token::Leq => TokenKind::Leq,
+            Token::Gt => TokenKind::Gt,
+            Token::Geq => TokenKind::Geq,
+            Token::EqEq => TokenKind::EqEq,
+            Token::Neq => TokenKind::Neq,
+            Token::Bang => TokenKind::Bang,
+            Token::True => TokenKind::True,
+            Token::False => TokenKind::False,
+            Token::Ampersand => TokenKind::Ampersand,
+            Token::Pipe => TokenKind::Pipe,
+            Token::LogicalAnd => TokenKind::LogicalAnd,
+            Token::LogicalOr => TokenKind::LogicalOr,
+            Token::Exit => TokenKind::Exit,
+        }
+    }
 }
 
 pub struct Lexer<'a> {
@@ -70,13 +145,13 @@ impl<'a> Lexer<'a> {
         Self { text }
     }
 
-    pub fn tokenize(&mut self) -> Result<Vec<Token>> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, LexerError> {
         let mut tokens = Vec::new();
         let mut iter = self.text.chars().peekable();
 
         while let Some(char) = iter.peek() {
             match char {
-                char if char.is_alphabetic() => tokens.push(self.string(&mut iter)?),
+                char if char.is_alphabetic() => tokens.push(self.string(&mut iter)),
                 char if char.is_ascii_digit() => tokens.push(self.number(&mut iter)?),
                 '(' => {
                     iter.next();
@@ -178,7 +253,7 @@ impl<'a> Lexer<'a> {
                 }
 
                 _ => {
-                    return Err(anyhow::anyhow!("Unknown token: {}", char));
+                    return Err(LexerError::UnknownToken(char.to_string()));
                 }
             }
         }
@@ -204,9 +279,9 @@ impl<'a> Lexer<'a> {
         buf
     }
 
-    fn string(&mut self, iter: &mut Peekable<Chars>) -> Result<Token> {
+    fn string(&mut self, iter: &mut Peekable<Chars>) -> Token {
         let ident = self.take_while(iter, |c| c.is_alphanumeric());
-        let token = match ident.as_str() {
+        match ident.as_str() {
             "exit" => Token::Exit,
             "let" => Token::Let,
             "if" => Token::If,
@@ -214,15 +289,14 @@ impl<'a> Lexer<'a> {
             "true" => Token::True,
             "false" => Token::False,
             _ => Token::Ident(ident),
-        };
-
-        Ok(token)
+        }
     }
 
-    fn number(&mut self, iter: &mut Peekable<Chars>) -> Result<Token> {
+    fn number(&mut self, iter: &mut Peekable<Chars>) -> Result<Token, LexerError> {
         let num = self
             .take_while(iter, |c| c.is_ascii_digit())
-            .parse::<usize>()?;
+            .parse::<usize>()
+            .map_err(|e| LexerError::InvalidNumber(e.to_string()))?;
 
         Ok(Token::Int(num))
     }

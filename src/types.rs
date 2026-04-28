@@ -139,41 +139,57 @@ mod tests {
 
     #[test]
     fn test_binary_expr() {
-        let ast = Parser::new(Lexer::new("let x = true + 2;").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("let x = true + 2;").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
 
-        let ast = Parser::new(Lexer::new("let x = 2 + 2;").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("let x = 2 + 2;").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
     }
 
     #[test]
     fn test_exit() {
-        let ast = Parser::new(Lexer::new("exit(false);").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("exit(false);").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
 
-        let ast = Parser::new(Lexer::new("exit(2 + false);").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("exit(2 + false);").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
 
-        let ast = Parser::new(Lexer::new("exit(2);").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("exit(2);").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
 
-        let ast = Parser::new(Lexer::new("exit(2 + 2);").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("exit(2 + 2);").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
     }
 
     #[test]
     fn test_assignment() {
-        let ast = Parser::new(Lexer::new("let x = 2; x = 3;").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("let x = 2; x = 3;").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
 
-        let ast = Parser::new(Lexer::new("let x = 2; x = false;").tokenize().unwrap()).parse();
+        let ast = Parser::new(Lexer::new("let x = 2; x = false;").tokenize().unwrap())
+            .parse()
+            .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
     }

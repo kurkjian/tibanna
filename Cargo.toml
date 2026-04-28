@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { version = "1" }
 strum = { version = "0" }
 strum_macros = { version = "0" }
+thiserror = { version = "2" }
 
 [dev-dependencies]
 tempfile = { version = "3" }
