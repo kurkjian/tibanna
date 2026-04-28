@@ -25,6 +25,8 @@ pub enum Token {
     EqEq,
     Neq,
     Bang,
+    True,
+    False,
 }
 
 impl Token {
@@ -180,6 +182,8 @@ impl<'a> Lexer<'a> {
             "let" => Token::Let,
             "if" => Token::If,
             "else" => Token::Else,
+            "true" => Token::True,
+            "false" => Token::False,
             _ => Token::Ident(ident),
         };
 

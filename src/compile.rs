@@ -6,6 +6,7 @@ use crate::{
         BinOp, ElseClause, Expression, ExpressionVariant, Program, Statement, StatementVariant,
         Term,
     },
+    types::TypeChecker,
 };
 
 const EXIT_SYSCALL: usize = 60;
@@ -43,6 +44,11 @@ impl Compiler {
     }
 
     pub fn compile(mut self) -> Vec<Instruction> {
+        let res = TypeChecker::new(&self.program).check();
+        if res.is_err() {
+            panic!("Type checker resulted in an error: {res:?}");
+        }
+
         let statements = std::mem::take(&mut self.program.statements);
         let mut identifiers = HashMap::new();
 
@@ -115,6 +121,9 @@ impl Compiler {
                             identifiers.insert(ident.name, loc);
 
                             Arg64::Unsigned(value)
+                        }
+                        Term::Bool(_b) => {
+                            todo!("bool literal not supported")
                         }
                     },
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
@@ -268,6 +277,9 @@ impl Compiler {
                         offset,
                     }),
                 )));
+            }
+            Term::Bool(_b) => {
+                todo!("bool literal not supported")
             }
         }
     }

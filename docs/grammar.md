@@ -39,8 +39,14 @@ $$
     \begin{cases}
         \text{ident} \\
         \text{intlit} \\
+        \text{bool} \\
     \end{cases} \\
 \text{ident} &\to \text{[a-Z]}^+\text{[a-Z0-9 | \_]}^* \\
-\text{intlit} &\to \mathbb{Z}
-\end{align}
+\text{intlit} &\to \mathbb{Z} \\
+\text{bool} &\to
+    \begin{cases}
+        true \\
+        false \\
+    \end{cases}
+\end{align} \\
 $$

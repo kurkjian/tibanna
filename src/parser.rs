@@ -50,6 +50,7 @@ pub struct ElseClause {
 pub enum Term {
     Identifier(String),
     IntLit(usize),
+    Bool(bool),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -91,7 +92,7 @@ impl From<Token> for BinOp {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Identifier {
     pub name: String,
 }
@@ -316,6 +317,14 @@ impl Parser {
 
                     return Term::Identifier(name);
                 }
+                Token::True => {
+                    self.inc();
+                    return Term::Bool(true);
+                }
+                Token::False => {
+                    self.inc();
+                    return Term::Bool(false);
+                }
                 _ => {
                     todo!("Error handling: Expected term, found: {:?}", token);
                 }
@@ -404,6 +413,14 @@ impl TryFrom<Token> for Expression {
             }
             Token::Ident(ident) => {
                 let variant = ExpressionVariant::Term(Term::Identifier(ident.to_string()));
+                Ok(Expression { variant })
+            }
+            Token::True => {
+                let variant = ExpressionVariant::Term(Term::Bool(true));
+                Ok(Expression { variant })
+            }
+            Token::False => {
+                let variant = ExpressionVariant::Term(Term::Bool(false));
                 Ok(Expression { variant })
             }
             _ => Err(()),
