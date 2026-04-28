@@ -122,8 +122,11 @@ impl Compiler {
 
                             Arg64::Unsigned(value)
                         }
-                        Term::Bool(_b) => {
-                            todo!("bool literal not supported")
+                        Term::Bool(b) => {
+                            let loc = VariableLocation::Offset(self.stack_offset);
+                            identifiers.insert(ident.name, loc);
+
+                            Arg64::Unsigned(b as usize)
                         }
                     },
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
@@ -278,8 +281,11 @@ impl Compiler {
                     }),
                 )));
             }
-            Term::Bool(_b) => {
-                todo!("bool literal not supported")
+            Term::Bool(b) => {
+                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
+                    Reg::Rax,
+                    Arg64::Unsigned(b as usize),
+                )));
             }
         }
     }
@@ -299,6 +305,22 @@ impl Compiler {
                 vec![
                     Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
                     to_jmp_instr(op, label),
+                ]
+            }
+            BinOp::And => {
+                let label = format!("_if{}", self.seq()); // FIXME: giga-scuffed. refactor ifs
+                vec![
+                    Instruction::And(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+                    Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Unsigned(1))),
+                    Instruction::Jne(label),
+                ]
+            }
+            BinOp::Or => {
+                let label = format!("_if{}", self.seq());
+                vec![
+                    Instruction::Or(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
+                    Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Unsigned(1))),
+                    Instruction::Jne(label),
                 ]
             }
         }

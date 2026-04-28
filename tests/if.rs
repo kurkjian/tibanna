@@ -168,3 +168,35 @@ fn test_elif() {
     let status = compile_and_run(prog);
     assert_eq!(status.code(), Some(2));
 }
+
+#[test]
+fn test_and() {
+    let prog = r#"
+        let x = false;
+        let y = true;
+        if x && y {
+            exit(1);
+        } else {
+            exit(2);
+        }
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
+fn test_or() {
+    let prog = r#"
+        let x = false;
+        let y = true;
+        if x || y {
+            exit(1);
+        } else {
+            exit(2);
+        }
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(1));
+}

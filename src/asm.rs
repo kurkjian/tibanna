@@ -14,6 +14,9 @@ pub enum Instruction {
     Mul(BinArgs),
     Cmp(BinArgs),
 
+    And(BinArgs),
+    Or(BinArgs),
+
     Je(String),
     Jne(String),
     Jg(String),
@@ -49,11 +52,13 @@ impl fmt::Display for Instruction {
             Instruction::Jge(label) => write!(f, "jge {}", label),
             Instruction::Jg(label) => write!(f, "jg {}", label),
             Instruction::Jmp(label) => write!(f, "jmp {}", label),
+            Instruction::And(args) => write!(f, "and {}", args),
+            Instruction::Or(args) => write!(f, "or {}", args),
         }
     }
 }
 
-#[derive(Debug, strum_macros::Display)]
+#[derive(Debug, strum_macros::Display, Copy, Clone)]
 #[strum(serialize_all = "lowercase")]
 pub enum Reg {
     Rsp,

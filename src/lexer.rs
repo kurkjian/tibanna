@@ -27,13 +27,24 @@ pub enum Token {
     Bang,
     True,
     False,
+    Ampersand,
+    Pipe,
+    LogicalAnd,
+    LogicalOr,
 }
 
 impl Token {
-    pub fn is_cmp(&self) -> bool {
+    pub fn is_bool(&self) -> bool {
         matches!(
             self,
-            Token::Lt | Token::Leq | Token::Gt | Token::Geq | Token::EqEq | Token::Neq
+            Token::Lt
+                | Token::Leq
+                | Token::Gt
+                | Token::Geq
+                | Token::EqEq
+                | Token::Neq
+                | Token::LogicalAnd
+                | Token::LogicalOr
         )
     }
 
@@ -141,6 +152,24 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token::Neq);
                     } else {
                         tokens.push(Token::Bang);
+                    }
+                }
+                '&' => {
+                    iter.next();
+                    if iter.peek() == Some(&'&') {
+                        iter.next();
+                        tokens.push(Token::LogicalAnd);
+                    } else {
+                        tokens.push(Token::Ampersand);
+                    }
+                }
+                '|' => {
+                    iter.next();
+                    if iter.peek() == Some(&'|') {
+                        iter.next();
+                        tokens.push(Token::LogicalOr);
+                    } else {
+                        tokens.push(Token::Pipe);
                     }
                 }
 

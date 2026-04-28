@@ -27,6 +27,8 @@ $$
         \text{[expr]} >= \text{[expr]} \\
         \text{[expr]} == \text{[expr]} \\
         \text{[expr]} \space \text{!=} \space \text{[expr]} \\
+        \text{[expr]} \space \&\& \space \text{[expr]} \\
+        \text{[expr]} \space || \space \text{[expr]} \\
     \end{cases} \\
 \text{scope} &\to \text{[stmt]}^* \\
 \text{else\_clause} &\to

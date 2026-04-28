@@ -64,13 +64,22 @@ pub enum BinOp {
     Geq,
     Eq,
     Neq,
+    And,
+    Or,
 }
 
 impl BinOp {
     pub fn is_cmp(&self) -> bool {
         matches!(
             self,
-            BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq | BinOp::Eq | BinOp::Neq
+            BinOp::Lt
+                | BinOp::Leq
+                | BinOp::Gt
+                | BinOp::Geq
+                | BinOp::Eq
+                | BinOp::Neq
+                | BinOp::And
+                | BinOp::Or
         )
     }
 }
@@ -87,6 +96,8 @@ impl From<Token> for BinOp {
             Token::Geq => BinOp::Geq,
             Token::EqEq => BinOp::Eq,
             Token::Neq => BinOp::Neq,
+            Token::LogicalAnd => BinOp::And,
+            Token::LogicalOr => BinOp::Or,
             _ => unreachable!(),
         }
     }
@@ -215,8 +226,8 @@ impl Parser {
 
             if self.peek().is_some_and(|x| x.is_binary_op()) {
                 let expr = self.climb_precedence(expr, 0);
-                if self.peek().is_some_and(|x| x.is_cmp()) {
-                    let cmp = self.peek().unwrap().to_owned();
+                if self.peek().is_some_and(|x| x.is_bool()) {
+                    let op = self.peek().unwrap().to_owned();
                     self.inc();
 
                     let rhs = self.parse_expr();
@@ -224,21 +235,21 @@ impl Parser {
                         variant: ExpressionVariant::BinaryExpr(
                             Box::new(expr),
                             Box::new(rhs),
-                            BinOp::from(cmp),
+                            BinOp::from(op),
                         ),
                     };
                 }
 
                 return expr;
-            } else if self.peek().is_some_and(|x| x.is_cmp()) {
-                let cmp = self.peek().unwrap().to_owned();
+            } else if self.peek().is_some_and(|x| x.is_bool()) {
+                let op = self.peek().unwrap().to_owned();
                 self.inc();
                 let rhs = self.parse_expr();
                 return Expression {
                     variant: ExpressionVariant::BinaryExpr(
                         Box::new(expr),
                         Box::new(rhs),
-                        BinOp::from(cmp),
+                        BinOp::from(op),
                     ),
                 };
             }
