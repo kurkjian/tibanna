@@ -151,9 +151,9 @@ impl Parser {
                 Token::Exit => {
                     self.inc();
 
-                    self.parse_paren(true)?;
+                    self.parse_type(Token::OpenParen)?;
                     let expr = self.parse_expr()?;
-                    self.parse_paren(false)?;
+                    self.parse_type(Token::CloseParen)?;
 
                     Statement {
                         variant: StatementVariant::Exit(expr),
@@ -163,7 +163,7 @@ impl Parser {
                     self.inc();
 
                     let ident = self.parse_ident()?;
-                    self.parse_eq()?;
+                    self.parse_type(Token::Equal)?;
                     let expr = self.parse_expr()?;
 
                     Statement {
@@ -174,13 +174,13 @@ impl Parser {
                     self.inc();
 
                     let cond = self.parse_expr()?;
-                    self.parse_brace(true)?;
+                    self.parse_type(Token::OpenBrace)?;
                     let mut body = Vec::new();
                     while !matches!(self.peek(), Some(Token::CloseBrace)) {
                         let statement = self.parse_statement()?;
                         body.push(statement);
                     }
-                    self.parse_brace(false)?;
+                    self.parse_type(Token::CloseBrace)?;
 
                     end_of_scope = true;
 
@@ -197,7 +197,7 @@ impl Parser {
                     let name = name.to_owned();
                     self.inc();
 
-                    self.parse_eq()?;
+                    self.parse_type(Token::Equal)?;
                     let expr = self.parse_expr()?;
                     Statement {
                         variant: StatementVariant::Assignment {
@@ -306,7 +306,7 @@ impl Parser {
                 self.inc();
                 cond = Some(self.parse_expr()?);
             }
-            self.parse_brace(true)?;
+            self.parse_type(Token::OpenBrace)?;
 
             let mut body = Vec::new();
             while !matches!(self.peek(), Some(Token::CloseBrace)) {
@@ -314,7 +314,7 @@ impl Parser {
                 body.push(statement);
             }
 
-            self.parse_brace(false)?;
+            self.parse_type(Token::CloseBrace)?;
 
             Ok(Some(ElseClause {
                 cond,
@@ -362,38 +362,15 @@ impl Parser {
             None => Err(ParseError::MissingToken(TokenKind::Identifier)),
         }
     }
-    fn parse_paren(&mut self, open: bool) -> Result<(), ParseError> {
-        let expected = if open {
-            TokenKind::OpenParen
-        } else {
-            TokenKind::CloseParen
-        };
 
-        self.expect(expected)
-    }
-
-    fn parse_brace(&mut self, open: bool) -> Result<(), ParseError> {
-        let expected = if open {
-            TokenKind::OpenBrace
-        } else {
-            TokenKind::CloseBrace
-        };
-
-        self.expect(expected)
-    }
-
-    fn parse_eq(&mut self) -> Result<(), ParseError> {
-        self.expect(TokenKind::Equal)
-    }
-
-    fn expect(&mut self, expected: TokenKind) -> Result<(), ParseError> {
+    fn parse_type(&mut self, expected: Token) -> Result<(), ParseError> {
         match self.peek() {
-            Some(token) if token.kind() == expected => {
+            Some(token) if *token == expected => {
                 self.inc();
                 Ok(())
             }
-            Some(token) => Err(ParseError::UnexpectedToken(token.clone(), expected)),
-            None => Err(ParseError::MissingToken(expected)),
+            Some(token) => Err(ParseError::UnexpectedToken(token.clone(), expected.kind())),
+            None => Err(ParseError::MissingToken(expected.kind())),
         }
     }
 }
