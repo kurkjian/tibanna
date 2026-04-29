@@ -8,6 +8,7 @@ $$
         exit(\text{[expr]}); \\
         let \space \text{[ident]} = \text{[expr]}; \\
         if \space \text{[expr]} \space \{\text{[scope]}\} \space \text{[else\_clause]} \\
+        while \space \text{[expr]} \space \{\text{[scope]}\} \\
         \text{[ident]} = \text{[expr]}; \\
         \{\text{[scope]}\} \\
     \end{cases} \\

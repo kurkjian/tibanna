@@ -31,18 +31,22 @@ pub enum StatementVariant {
         then: Vec<Statement>,
         els: Option<ElseClause>,
     },
+    While {
+        cond: Expression,
+        body: Vec<Statement>,
+    },
     Assignment {
         ident: Identifier,
         expr: Expression,
     },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Expression {
     pub variant: ExpressionVariant,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExpressionVariant {
     BinaryExpr(Box<Expression>, Box<Expression>, BinOp),
     Term(Term),
@@ -55,7 +59,7 @@ pub struct ElseClause {
     pub els: Box<Option<ElseClause>>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Term {
     Identifier(String),
     IntLit(usize),
@@ -90,6 +94,10 @@ impl BinOp {
                 | BinOp::And
                 | BinOp::Or
         )
+    }
+
+    pub fn is_bool(&self) -> bool {
+        matches!(self, BinOp::And | BinOp::Or)
     }
 }
 
@@ -191,6 +199,23 @@ impl Parser {
                             then: body,
                             els,
                         },
+                    }
+                }
+                Token::While => {
+                    self.inc();
+
+                    let cond = self.parse_expr()?;
+                    self.parse_type(Token::OpenBrace)?;
+                    let mut body = Vec::new();
+                    while !matches!(self.peek(), Some(Token::CloseBrace)) {
+                        let statement = self.parse_statement()?;
+                        body.push(statement);
+                    }
+                    self.parse_type(Token::CloseBrace)?;
+
+                    end_of_scope = true;
+                    Statement {
+                        variant: StatementVariant::While { cond, body },
                     }
                 }
                 Token::Ident(name) => {

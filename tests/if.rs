@@ -170,6 +170,26 @@ fn test_elif() {
 }
 
 #[test]
+fn test_elif_exclusive() {
+    let prog = r#"
+        let x = 1;
+        let y = 1;
+        let z = 0;
+        if x == y {
+            z = z + 1;
+        } else if x < 2 {
+            z = z + 1;
+        } else {
+            z = z + 1;
+        }
+        exit(z);
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(1));
+}
+
+#[test]
 fn test_and() {
     let prog = r#"
         let x = false;

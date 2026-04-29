@@ -28,6 +28,7 @@ pub enum Token {
     Pipe,
     LogicalAnd,
     LogicalOr,
+    While,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, strum_macros::Display)]
@@ -61,6 +62,7 @@ pub enum TokenKind {
     Pipe,
     LogicalAnd,
     LogicalOr,
+    While,
 }
 
 impl Token {
@@ -120,6 +122,7 @@ impl Token {
             Token::LogicalAnd => TokenKind::LogicalAnd,
             Token::LogicalOr => TokenKind::LogicalOr,
             Token::Exit => TokenKind::Exit,
+            Token::While => TokenKind::While,
         }
     }
 }

@@ -64,6 +64,15 @@ impl<'a> TypeChecker<'a> {
 
                 Ok(())
             }
+            StatementVariant::While { cond, body } => {
+                let _ = self.resolve_expr(cond)?;
+
+                for stmt in body {
+                    self.resolve_statement(stmt)?;
+                }
+
+                Ok(())
+            }
             StatementVariant::Assignment { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
 

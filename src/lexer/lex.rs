@@ -163,6 +163,7 @@ impl<'a> Lexer<'a> {
             "else" => Token::Else,
             "true" => Token::True,
             "false" => Token::False,
+            "while" => Token::While,
             _ => Token::Ident(ident),
         }
     }

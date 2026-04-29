@@ -164,6 +164,23 @@ impl Compiler {
             StatementVariant::If { cond, then, els } => {
                 self.compile_if(identifiers, cond, then, els);
             }
+            StatementVariant::While { cond, body } => {
+                let cond_label = format!("_while_cond{}", self.seq());
+                let done_label = format!("_while_done{}", self.seq());
+                let op = extract_binary_op(&cond);
+
+                self.instructions
+                    .push(Instruction::Label(cond_label.clone()));
+
+                self.compile_expr(cond, identifiers);
+                self.compile_condition_check(op, done_label.clone());
+
+                for stmt in body {
+                    self.compile_statement(stmt, identifiers);
+                }
+                self.instructions.push(Instruction::Jmp(cond_label));
+                self.instructions.push(Instruction::Label(done_label));
+            }
             StatementVariant::Assignment { ident, expr } => {
                 self.compile_expr(expr, identifiers);
                 let loc = identifiers.get(&ident.name).expect("identifier not found");
@@ -216,35 +233,22 @@ impl Compiler {
         then: Vec<Statement>,
         els: Option<ElseClause>,
     ) {
-        let implicit_cmp = if let Expression {
-            variant: ExpressionVariant::BinaryExpr(_, _, ref op),
-        } = cond
-        {
-            !op.is_cmp()
-        } else {
-            false
-        };
+        let fail_condition = format!("_if{}", self.seq());
+        let done = format!("_if_done{}", self.seq());
+        let op = extract_binary_op(&cond);
 
         self.compile_expr(cond, identifiers);
+        self.compile_condition_check(op, fail_condition.clone());
 
-        // Implicit '!= 0' for statements like 'if x + 1'
-        if implicit_cmp {
-            self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
-                Reg::Rax,
-                Arg64::Unsigned(0),
-            )));
-            let label = format!("_if{}", self.seq());
-            self.instructions.push(Instruction::Je(label.clone()));
-        }
-
-        let label = find_last_jmp_label(&self.instructions)
-            .expect("Must find jump label")
-            .to_string();
         for stmt in then {
             self.compile_statement(stmt, identifiers);
         }
 
-        self.instructions.push(Instruction::Label(label));
+        if els.is_some() {
+            // Skip the else branch if the condition was true
+            self.instructions.push(Instruction::Jmp(done.clone()));
+        }
+        self.instructions.push(Instruction::Label(fail_condition));
 
         if let Some(clause) = els {
             if let Some(cond) = clause.cond {
@@ -255,6 +259,8 @@ impl Compiler {
                 }
             }
         }
+
+        self.instructions.push(Instruction::Label(done));
     }
 
     fn compile_term(&mut self, term: Term, identifiers: &HashMap<String, VariableLocation>) {
@@ -290,6 +296,28 @@ impl Compiler {
         }
     }
 
+    fn compile_condition_check(&mut self, op: Option<BinOp>, fail_condition: String) {
+        match op {
+            Some(op) if op.is_bool() || op.is_cmp() => {
+                if op.is_bool() {
+                    self.instructions
+                        .push(Instruction::Jne(fail_condition.clone()));
+                } else {
+                    self.instructions
+                        .push(to_jmp_instr(op, fail_condition.clone()));
+                }
+            }
+            _ => {
+                self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
+                    Reg::Rax,
+                    Arg64::Unsigned(0),
+                )));
+                self.instructions
+                    .push(Instruction::Je(fail_condition.clone()));
+            }
+        }
+    }
+
     fn seq(&mut self) -> usize {
         self.seq_no += 1;
         self.seq_no - 1
@@ -301,26 +329,18 @@ impl Compiler {
             BinOp::Sub => vec![Instruction::Sub(BinArgs::ToReg(reg1, Arg64::Reg(reg2)))],
             BinOp::Mul => vec![Instruction::Mul(BinArgs::ToReg(reg1, Arg64::Reg(reg2)))],
             BinOp::Eq | BinOp::Gt | BinOp::Geq | BinOp::Lt | BinOp::Leq | BinOp::Neq => {
-                let label = format!("_if{}", self.seq());
-                vec![
-                    Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
-                    to_jmp_instr(op, label),
-                ]
+                vec![Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Reg(reg2)))]
             }
             BinOp::And => {
-                let label = format!("_if{}", self.seq()); // FIXME: giga-scuffed. refactor ifs
                 vec![
                     Instruction::And(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
                     Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Unsigned(1))),
-                    Instruction::Jne(label),
                 ]
             }
             BinOp::Or => {
-                let label = format!("_if{}", self.seq());
                 vec![
                     Instruction::Or(BinArgs::ToReg(reg1, Arg64::Reg(reg2))),
                     Instruction::Cmp(BinArgs::ToReg(reg1, Arg64::Unsigned(1))),
-                    Instruction::Jne(label),
                 ]
             }
         }
@@ -330,13 +350,25 @@ impl Compiler {
 fn count_vars(statements: &[Statement]) -> usize {
     let mut count = 0;
     for stmt in statements {
-        if matches!(
-            stmt,
-            Statement {
-                variant: StatementVariant::Let { .. }
+        match &stmt.variant {
+            StatementVariant::Let { .. } => count += 1,
+            StatementVariant::Exit(_) => {}
+            StatementVariant::If { then, els, .. } => {
+                count += count_vars(then);
+                if let Some(els) = els {
+                    count += count_vars(&els.body);
+
+                    let mut next = els.els.as_ref();
+                    while let Some(e) = next {
+                        count += count_vars(&e.body);
+                        next = e.els.as_ref();
+                    }
+                }
             }
-        ) {
-            count += 1;
+            StatementVariant::While { body, .. } => {
+                count += count_vars(body);
+            }
+            StatementVariant::Assignment { .. } => {}
         }
     }
     count
@@ -354,18 +386,13 @@ fn to_jmp_instr(op: BinOp, label: String) -> Instruction {
     }
 }
 
-fn find_last_jmp_label(instructions: &[Instruction]) -> Option<&str> {
-    instructions.iter().rev().find_map(|inst| {
-        if let Instruction::Jne(label)
-        | Instruction::Je(label)
-        | Instruction::Jle(label)
-        | Instruction::Jl(label)
-        | Instruction::Jge(label)
-        | Instruction::Jg(label) = inst
-        {
-            Some(label.as_str())
-        } else {
-            None
-        }
-    })
+fn extract_binary_op(expr: &Expression) -> Option<BinOp> {
+    if let Expression {
+        variant: ExpressionVariant::BinaryExpr(_, _, op),
+    } = expr
+    {
+        Some(*op)
+    } else {
+        None
+    }
 }
