@@ -5,9 +5,11 @@ use runner::compile_and_run;
 #[test]
 fn test_it_works() {
     let prog = r#"
-        let x = 12;
-        x = 13;
-        exit(x);
+        fn main() {
+            let x = 12;
+            x = 13;
+            exit(x);
+        }
     "#;
 
     let status = compile_and_run(prog);
@@ -17,10 +19,12 @@ fn test_it_works() {
 #[test]
 fn test_assignment_to_ident() {
     let prog = r#"
-        let x = 12;
-        let y = 13;
-        x = y;
-        exit(x);
+        fn main() {
+            let x = 12;
+            let y = 13;
+            x = y;
+            exit(x);
+        }
     "#;
 
     let status = compile_and_run(prog);
@@ -30,11 +34,13 @@ fn test_assignment_to_ident() {
 #[test]
 fn test_assignment_with_expr() {
     let prog = r#"
-        let x = 12;
-        let y = 13;
-        x = y * 2;
-        x = x - 1;
-        exit(x);
+        fn main() {
+            let x = 12;
+            let y = 13;
+            x = y * 2;
+            x = x - 1;
+            exit(x);
+        }
     "#;
 
     let status = compile_and_run(prog);

@@ -3,28 +3,30 @@ mod runner;
 use runner::compile_and_run;
 
 #[test]
-fn test_single_line() {
+fn test_it_works() {
     let prog = r#"
         fn main() {
-            let x = 69;
-            // comment
+            let x = 1;
             exit(x);
         }
     "#;
 
     let status = compile_and_run(prog);
-    assert_eq!(status.code(), Some(69));
+    assert_eq!(status.code(), Some(1));
 }
 
 #[test]
-fn test_inline() {
+fn test_function_call() {
     let prog = r#"
         fn main() {
-            let x = 69; // comment
-            exit(x);//no whitespace
+            inc_and_exit(0);
+        }
+
+        fn inc_and_exit(x: int) {
+            exit(x + 1);
         }
     "#;
 
     let status = compile_and_run(prog);
-    assert_eq!(status.code(), Some(69));
+    assert_eq!(status.code(), Some(1));
 }

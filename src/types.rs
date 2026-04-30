@@ -2,18 +2,14 @@ use anyhow::{Result, bail};
 use std::collections::HashMap;
 
 use crate::parser::{
-    ElseClause, Expression, ExpressionVariant, Program, Statement, StatementVariant, Term,
+    Argument, ElseClause, Expression, ExpressionVariant, Function, Program, Statement,
+    StatementVariant, Term, Type,
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Type {
-    Int,
-    Bool,
-}
 
 pub struct TypeChecker<'a> {
     ast: &'a Program,
     symbols: HashMap<String, Type>,
+    functions: HashMap<String, (&'a Vec<Argument>, &'a Type)>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -21,13 +17,35 @@ impl<'a> TypeChecker<'a> {
         Self {
             ast,
             symbols: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 
     pub fn check(&mut self) -> Result<()> {
-        for statement in self.ast.statements.iter() {
-            self.resolve_statement(statement)?;
+        for function in self.ast.functions.iter() {
+            self.functions.insert(
+                function.name.name.clone(),
+                (&function.args, &function.ret_sig),
+            );
         }
+
+        for function in self.ast.functions.iter() {
+            self.resolve_function(function)?;
+        }
+
+        Ok(())
+    }
+
+    fn resolve_function(&mut self, function: &Function) -> Result<()> {
+        for arg in function.args.iter() {
+            self.symbols.insert(arg.name.name.clone(), arg.ty.clone());
+        }
+
+        for stmt in &function.body {
+            self.resolve_statement(stmt)?;
+        }
+
+        // TODO: validate return type matches function.ret_sig
 
         Ok(())
     }
@@ -90,6 +108,11 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
+            StatementVariant::FunctionCall { .. } => {
+                // TODO: validate args match function signature
+
+                Ok(())
+            }
         }
     }
 
@@ -123,6 +146,15 @@ impl<'a> TypeChecker<'a> {
                 Ok(lhs_type)
             }
             ExpressionVariant::Term(term) => self.resolve_term(term),
+            ExpressionVariant::FunctionCall { name, .. } => {
+                let expected = self
+                    .functions
+                    .get(&name.name)
+                    .ok_or_else(|| anyhow::anyhow!("Call to undeclared function"))?
+                    .1
+                    .to_owned();
+                Ok(expected)
+            }
         }
     }
 
@@ -148,40 +180,52 @@ mod tests {
 
     #[test]
     fn test_binary_expr() {
-        let ast = Parser::new(Lexer::new("let x = true + 2;").tokenize().unwrap())
-            .parse()
-            .unwrap();
+        let ast = Parser::new(
+            Lexer::new("fn main() { let x = true + 2; }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
 
-        let ast = Parser::new(Lexer::new("let x = 2 + 2;").tokenize().unwrap())
-            .parse()
-            .unwrap();
+        let ast = Parser::new(
+            Lexer::new("fn main() { let x = 2 + 2; }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
     }
 
     #[test]
     fn test_exit() {
-        let ast = Parser::new(Lexer::new("exit(false);").tokenize().unwrap())
+        let ast = Parser::new(Lexer::new("fn main() { exit(false); }").tokenize().unwrap())
             .parse()
             .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
 
-        let ast = Parser::new(Lexer::new("exit(2 + false);").tokenize().unwrap())
-            .parse()
-            .unwrap();
+        let ast = Parser::new(
+            Lexer::new("fn main() { exit(2 + false); }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
 
-        let ast = Parser::new(Lexer::new("exit(2);").tokenize().unwrap())
+        let ast = Parser::new(Lexer::new("fn main() { exit(2); }").tokenize().unwrap())
             .parse()
             .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
 
-        let ast = Parser::new(Lexer::new("exit(2 + 2);").tokenize().unwrap())
+        let ast = Parser::new(Lexer::new("fn main() { exit(2 + 2); }").tokenize().unwrap())
             .parse()
             .unwrap();
         let mut checker = TypeChecker::new(&ast);
@@ -190,15 +234,23 @@ mod tests {
 
     #[test]
     fn test_assignment() {
-        let ast = Parser::new(Lexer::new("let x = 2; x = 3;").tokenize().unwrap())
-            .parse()
-            .unwrap();
+        let ast = Parser::new(
+            Lexer::new("fn main() { let x = 2; x = 3; }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
 
-        let ast = Parser::new(Lexer::new("let x = 2; x = false;").tokenize().unwrap())
-            .parse()
-            .unwrap();
+        let ast = Parser::new(
+            Lexer::new("fn main() { let x = 2; x = false; }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
     }

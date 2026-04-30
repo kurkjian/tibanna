@@ -26,6 +26,9 @@ pub enum Instruction {
     Jl(String),
     Jle(String),
     Jmp(String),
+
+    Call(String),
+    Ret,
 }
 
 impl fmt::Debug for Instruction {
@@ -58,6 +61,8 @@ impl fmt::Display for Instruction {
             Instruction::Jmp(label) => write!(f, "jmp {}", label),
             Instruction::And(args) => write!(f, "and {}", args),
             Instruction::Or(args) => write!(f, "or {}", args),
+            Instruction::Call(label) => write!(f, "call {}", label),
+            Instruction::Ret => write!(f, "ret"),
         }
     }
 }
@@ -69,6 +74,9 @@ pub enum Reg {
     Rbp,
     Rax,
     Rbx,
+    Rcx,
+    Rdx,
+    Rsi,
     Rdi,
 }
 

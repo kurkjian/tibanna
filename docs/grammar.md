@@ -2,7 +2,9 @@
 
 $$
 \begin{align}
-\text{program} &\to \text{[stmt]}^+ \\
+\text{program} &\to \text{[function]}^* \\
+\text{function} &\to fn \space \text{[ident]}([\text{[ident]: }\text{[type]}]^*)\text{[ret\_signature]}\{\text{[scope]}\} \\
+\text{ret\_signature} &\to \space = \text[type] \\
 \text{stmt} &\to
     \begin{cases}
         exit(\text{[expr]}); \\
@@ -10,13 +12,16 @@ $$
         if \space \text{[expr]} \space \{\text{[scope]}\} \space \text{[else\_clause]} \\
         while \space \text{[expr]} \space \{\text{[scope]}\} \\
         \text{[ident]} = \text{[expr]}; \\
+        \text{[function\_call]}; \\
         \{\text{[scope]}\} \\
     \end{cases} \\
 \text{expr} &\to
     \begin{cases}
         \text{[bin\_expr]} \\
         \text{[term]} \\
+        \text{[function\_call]}; \\
     \end{cases} \\
+\text{function\_call} &\to \text{[ident]}(\text{[expr]}^*)\\
 \text{bin\_expr} &\to
     \begin{cases}
         \text{[expr] + [expr]} \\
@@ -37,6 +42,11 @@ $$
         else \space if \space \text{[expr]} \space \{\text{[scope]}\} \space \text{[else\_clause]} \\
         else \space \{\text{[scope]}\} \\
         \epsilon
+    \end{cases} \\
+\text{type} &\to
+    \begin{cases}
+        int \\
+        bool \\
     \end{cases} \\
 \text{term} &\to
     \begin{cases}

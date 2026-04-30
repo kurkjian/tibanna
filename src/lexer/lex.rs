@@ -122,6 +122,14 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token::Pipe);
                     }
                 }
+                ':' => {
+                    iter.next();
+                    tokens.push(Token::Colon);
+                }
+                ',' => {
+                    iter.next();
+                    tokens.push(Token::Comma);
+                }
 
                 char if char.is_whitespace() => {
                     iter.next();
@@ -155,7 +163,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn string(&mut self, iter: &mut Peekable<Chars>) -> Token {
-        let ident = self.take_while(iter, |c| c.is_alphanumeric());
+        let ident = self.take_while(iter, |c| c.is_alphanumeric() || c == '_');
         match ident.as_str() {
             "exit" => Token::Exit,
             "let" => Token::Let,
@@ -164,6 +172,10 @@ impl<'a> Lexer<'a> {
             "true" => Token::True,
             "false" => Token::False,
             "while" => Token::While,
+            "fn" => Token::Fn,
+            "int" => Token::Int,
+            "bool" => Token::Bool,
+            "return" => Token::Return,
             _ => Token::Ident(ident),
         }
     }
@@ -174,7 +186,7 @@ impl<'a> Lexer<'a> {
             .parse::<usize>()
             .map_err(|e| LexerError::InvalidNumber(e.to_string()))?;
 
-        Ok(Token::Int(num))
+        Ok(Token::IntLit(num))
     }
 }
 
@@ -197,7 +209,7 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize().unwrap();
 
-        assert_eq!(tokens, vec![Token::Int(123)]);
+        assert_eq!(tokens, vec![Token::IntLit(123)]);
     }
 
     #[test]
@@ -211,7 +223,7 @@ mod tests {
             vec![
                 Token::Exit,
                 Token::OpenParen,
-                Token::Int(69),
+                Token::IntLit(69),
                 Token::CloseParen,
                 Token::Semi
             ]
@@ -230,7 +242,7 @@ mod tests {
                 Token::Let,
                 Token::Ident("x".to_string()),
                 Token::Equal,
-                Token::Int(420),
+                Token::IntLit(420),
                 Token::Semi
             ]
         );

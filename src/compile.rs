@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{
     asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
     parser::{
-        BinOp, ElseClause, Expression, ExpressionVariant, Program, Statement, StatementVariant,
-        Term,
+        BinOp, ElseClause, Expression, ExpressionVariant, Function, Program, Statement,
+        StatementVariant, Term,
     },
     types::TypeChecker,
 };
@@ -16,6 +16,7 @@ const WORD_SIZE: usize = 8;
 enum VariableLocation {
     // Offset from RBP
     Offset(usize),
+    Register(Reg),
 }
 
 pub struct Compiler {
@@ -33,6 +34,7 @@ impl Compiler {
             Instruction::Label("_start".to_string()),
             Instruction::Push(Reg::Rbp),
             Instruction::Mov(MovArgs::ToReg(Reg::Rbp, Arg64::Reg(Reg::Rsp))),
+            Instruction::Call(program.functions.first().unwrap().name.name.clone()), // FIXME: lol temp hack
         ];
 
         Self {
@@ -49,20 +51,42 @@ impl Compiler {
             panic!("Type checker resulted in an error: {res:?}");
         }
 
-        let statements = std::mem::take(&mut self.program.statements);
+        let functions = std::mem::take(&mut self.program.functions);
         let mut identifiers = HashMap::new();
 
-        let local_vars = count_vars(&statements);
+        for f in functions {
+            self.compile_function(f, &mut identifiers);
+        }
+
+        self.instructions
+    }
+
+    fn compile_function(
+        &mut self,
+        function: Function,
+        identifiers: &mut HashMap<String, VariableLocation>,
+    ) {
+        let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
+        for (arg, reg) in function.args.iter().zip(arg_regs.iter()) {
+            identifiers.insert(arg.name.name.clone(), VariableLocation::Register(*reg));
+        }
+        self.instructions
+            .push(Instruction::Label(function.name.name.clone()));
+
+        self.instructions.push(Instruction::Push(Reg::Rbp));
+
+        let local_vars = count_vars(&function.body);
         self.instructions.push(Instruction::Sub(BinArgs::ToReg(
             Reg::Rsp,
             Arg64::Unsigned(local_vars * WORD_SIZE),
         )));
 
-        for stmt in statements {
-            self.compile_statement(stmt, &mut identifiers);
+        for stmt in function.body {
+            self.compile_statement(stmt, identifiers);
         }
 
-        self.instructions
+        self.instructions.push(Instruction::Pop(Reg::Rbp));
+        self.instructions.push(Instruction::Ret);
     }
 
     fn compile_statement(
@@ -89,6 +113,19 @@ impl Compiler {
                         let instr = self.bin_op_to_instr(op, Reg::Rdi, Reg::Rax);
                         self.instructions.extend(instr);
                     }
+                    ExpressionVariant::FunctionCall { name, args } => {
+                        if args.len() > 4 {
+                            todo!("function call with more than 4 args. need to use stack")
+                        }
+
+                        let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
+                        for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
+                            self.compile_expr(arg, identifiers);
+                            self.instructions.push(Instruction::Pop(reg));
+                        }
+
+                        self.instructions.push(Instruction::Call(name.name));
+                    }
                 }
 
                 self.instructions.push(Instruction::Mov(MovArgs::ToReg(
@@ -104,17 +141,30 @@ impl Compiler {
                             let loc = identifiers
                                 .get(&name)
                                 .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
-                            let offset = match loc {
-                                VariableLocation::Offset(offset) => *offset,
-                            };
-                            let mem_ref = MemRef {
-                                reg: Reg::Rbp,
-                                offset,
-                            };
-                            identifiers
-                                .insert(ident.name, VariableLocation::Offset(self.stack_offset));
 
-                            Arg64::Mem(mem_ref)
+                            match loc {
+                                VariableLocation::Offset(offset) => {
+                                    let mem_ref = MemRef {
+                                        reg: Reg::Rbp,
+                                        offset: *offset,
+                                    };
+
+                                    identifiers.insert(
+                                        ident.name,
+                                        VariableLocation::Offset(self.stack_offset),
+                                    );
+                                    Arg64::Mem(mem_ref)
+                                }
+                                VariableLocation::Register(reg) => {
+                                    let r = *reg;
+                                    identifiers.insert(
+                                        ident.name,
+                                        VariableLocation::Offset(self.stack_offset),
+                                    );
+
+                                    Arg64::Reg(r)
+                                }
+                            }
                         }
                         Term::IntLit(value) => {
                             let loc = VariableLocation::Offset(self.stack_offset);
@@ -140,6 +190,21 @@ impl Compiler {
 
                         let loc = VariableLocation::Offset(self.stack_offset);
                         identifiers.insert(ident.name, loc);
+
+                        Arg64::Reg(Reg::Rax)
+                    }
+                    ExpressionVariant::FunctionCall { name, args } => {
+                        if args.len() > 4 {
+                            todo!("function call with more than 4 args. need to use stack")
+                        }
+
+                        let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
+                        for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
+                            self.compile_expr(arg, identifiers);
+                            self.instructions.push(Instruction::Pop(reg));
+                        }
+
+                        self.instructions.push(Instruction::Call(name.name));
 
                         Arg64::Reg(Reg::Rax)
                     }
@@ -186,6 +251,9 @@ impl Compiler {
                 let loc = identifiers.get(&ident.name).expect("identifier not found");
                 let offset = match loc {
                     VariableLocation::Offset(offset) => *offset,
+                    VariableLocation::Register(_) => {
+                        todo!("Allow mutating function args");
+                    }
                 };
 
                 self.instructions.push(Instruction::Pop(Reg::Rax));
@@ -196,6 +264,19 @@ impl Compiler {
                     },
                     Reg::Rax,
                 )))
+            }
+            StatementVariant::FunctionCall { name, args } => {
+                if args.len() > 4 {
+                    todo!("function call with more than 4 args. need to use stack")
+                }
+
+                let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
+                for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
+                    self.compile_expr(arg, identifiers);
+                    self.instructions.push(Instruction::Pop(reg));
+                }
+
+                self.instructions.push(Instruction::Call(name.name));
             }
         }
     }
@@ -222,6 +303,19 @@ impl Compiler {
                 if !op.is_cmp() {
                     self.instructions.push(Instruction::Push(Reg::Rax));
                 }
+            }
+            ExpressionVariant::FunctionCall { name, args } => {
+                if args.len() > 4 {
+                    todo!("function call with more than 4 args. need to use stack")
+                }
+
+                let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
+                for (arg, reg) in args.into_iter().zip(arg_regs.iter()) {
+                    self.compile_expr(arg, identifiers);
+                    self.instructions.push(Instruction::Pop(*reg));
+                }
+
+                self.instructions.push(Instruction::Call(name.name));
             }
         }
     }
@@ -276,16 +370,21 @@ impl Compiler {
                     .get(&name)
                     .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
 
-                let offset = match var {
-                    VariableLocation::Offset(offset) => *offset,
-                };
-                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                    Reg::Rax,
-                    Arg64::Mem(MemRef {
-                        reg: Reg::Rbp,
-                        offset,
-                    }),
-                )));
+                match var {
+                    VariableLocation::Offset(offset) => {
+                        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
+                            Reg::Rax,
+                            Arg64::Mem(MemRef {
+                                reg: Reg::Rbp,
+                                offset: *offset,
+                            }),
+                        )));
+                    }
+                    VariableLocation::Register(reg) => {
+                        self.instructions
+                            .push(Instruction::Mov(MovArgs::ToReg(Reg::Rax, Arg64::Reg(*reg))));
+                    }
+                }
             }
             Term::Bool(b) => {
                 self.instructions.push(Instruction::Mov(MovArgs::ToReg(
@@ -369,6 +468,7 @@ fn count_vars(statements: &[Statement]) -> usize {
                 count += count_vars(body);
             }
             StatementVariant::Assignment { .. } => {}
+            StatementVariant::FunctionCall { .. } => {}
         }
     }
     count

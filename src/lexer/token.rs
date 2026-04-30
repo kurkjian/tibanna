@@ -5,7 +5,7 @@ pub enum Token {
     CloseParen,
     OpenBrace,
     CloseBrace,
-    Int(usize),
+    IntLit(usize),
     Semi,
     Let,
     Ident(String),
@@ -29,17 +29,24 @@ pub enum Token {
     LogicalAnd,
     LogicalOr,
     While,
+    Int,
+    Bool,
+    Fn,
+    Colon,
+    Return,
+    Comma,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, strum_macros::Display)]
 pub enum TokenKind {
     Term, // ?
+    Type,
     Exit,
     OpenParen,
     CloseParen,
     OpenBrace,
     CloseBrace,
-    Int,
+    IntLit,
     Semi,
     Let,
     Identifier,
@@ -63,6 +70,12 @@ pub enum TokenKind {
     LogicalAnd,
     LogicalOr,
     While,
+    Int,
+    Bool,
+    Fn,
+    Colon,
+    Return,
+    Comma,
 }
 
 impl Token {
@@ -94,7 +107,7 @@ impl Token {
 
     pub fn kind(&self) -> TokenKind {
         match self {
-            Token::Int(_) => TokenKind::Int,
+            Token::IntLit(_) => TokenKind::IntLit,
             Token::Ident(_) => TokenKind::Identifier,
             Token::OpenBrace => TokenKind::OpenBrace,
             Token::CloseBrace => TokenKind::CloseBrace,
@@ -123,6 +136,12 @@ impl Token {
             Token::LogicalOr => TokenKind::LogicalOr,
             Token::Exit => TokenKind::Exit,
             Token::While => TokenKind::While,
+            Token::Int => TokenKind::Int,
+            Token::Bool => TokenKind::Bool,
+            Token::Fn => TokenKind::Fn,
+            Token::Colon => TokenKind::Colon,
+            Token::Return => TokenKind::Return,
+            Token::Comma => TokenKind::Comma,
         }
     }
 }
