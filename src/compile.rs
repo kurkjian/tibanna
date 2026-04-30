@@ -206,6 +206,9 @@ impl Compiler {
 
                         self.instructions.push(Instruction::Call(name.name));
 
+                        let loc = VariableLocation::Offset(self.stack_offset);
+                        identifiers.insert(ident.name, loc);
+
                         Arg64::Reg(Reg::Rax)
                     }
                 };
@@ -277,6 +280,12 @@ impl Compiler {
                 }
 
                 self.instructions.push(Instruction::Call(name.name));
+            }
+            StatementVariant::Return(expr) => {
+                self.compile_expr(expr, identifiers);
+                self.instructions.push(Instruction::Pop(Reg::Rax));
+                self.instructions.push(Instruction::Pop(Reg::Rbp));
+                self.instructions.push(Instruction::Ret);
             }
         }
     }
@@ -469,6 +478,7 @@ fn count_vars(statements: &[Statement]) -> usize {
             }
             StatementVariant::Assignment { .. } => {}
             StatementVariant::FunctionCall { .. } => {}
+            StatementVariant::Return(_) => {}
         }
     }
     count

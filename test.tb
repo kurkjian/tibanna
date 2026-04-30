@@ -1,15 +1,8 @@
-let x = 0;
-let i = 0;
-
-while i < 3 {
-    let j = 0;
-    while j < 2 {
-        x = x + 1;
-        j = j + 1;
-        exit(j);
-    }
-    exit(x);
-    i = i + 1;
+fn main() {
+    let y = inc_and_ret(0);
+    exit(y);
 }
 
-exit(x);
+fn inc_and_ret(x: int) = int {
+    return x + 1;
+}

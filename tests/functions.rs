@@ -30,3 +30,20 @@ fn test_function_call() {
     let status = compile_and_run(prog);
     assert_eq!(status.code(), Some(1));
 }
+
+#[test]
+fn test_function_return() {
+    let prog = r#"
+        fn main() {
+            let y = inc_and_ret(0);
+            exit(y);
+        }
+
+        fn inc_and_ret(x: int) = int {
+            return x + 1;
+        }
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(1));
+}

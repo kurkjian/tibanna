@@ -13,13 +13,14 @@ $$
         while \space \text{[expr]} \space \{\text{[scope]}\} \\
         \text{[ident]} = \text{[expr]}; \\
         \text{[function\_call]}; \\
+        \text{[return] [expr]}; \\
         \{\text{[scope]}\} \\
     \end{cases} \\
 \text{expr} &\to
     \begin{cases}
         \text{[bin\_expr]} \\
         \text{[term]} \\
-        \text{[function\_call]}; \\
+        \text{[function\_call]} \\
     \end{cases} \\
 \text{function\_call} &\to \text{[ident]}(\text{[expr]}^*)\\
 \text{bin\_expr} &\to

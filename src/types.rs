@@ -113,6 +113,11 @@ impl<'a> TypeChecker<'a> {
 
                 Ok(())
             }
+            StatementVariant::Return(_) => {
+                // TODO: Validate return type matches function signature
+
+                Ok(())
+            }
         }
     }
 

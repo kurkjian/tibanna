@@ -64,6 +64,7 @@ pub enum StatementVariant {
         name: Identifier,
         args: Vec<Expression>,
     },
+    Return(Expression),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -353,6 +354,13 @@ impl Parser {
                         }
                     }
                 }
+                Token::Return => {
+                    self.inc();
+                    let expr = self.parse_expr()?;
+                    Statement {
+                        variant: StatementVariant::Return(expr),
+                    }
+                }
                 _ => {
                     todo!("Error handling: Unexpected token: {:?}", token);
                 }
@@ -362,6 +370,7 @@ impl Parser {
             if matches!(next, Some(Token::Semi)) {
                 self.inc();
             } else if !end_of_scope {
+                println!("{:?}", statement);
                 todo!(
                     "Error handling: Expected semicolon after statement: {:?}",
                     next
@@ -376,6 +385,7 @@ impl Parser {
 
     fn parse_expr(&mut self) -> Result<Expression, ParseError> {
         if let Some(token) = self.peek() {
+            let cloned = token.to_owned();
             let expr = Expression::try_from(token.to_owned())
                 .expect("Could not convert token to expression");
             self.inc();
@@ -407,6 +417,29 @@ impl Parser {
                         Box::new(rhs),
                         BinOp::from(op),
                     ),
+                });
+            } else if self.peek() == Some(&Token::OpenParen) {
+                let fn_name = match cloned {
+                    Token::Ident(name) => name,
+                    _ => panic!("Expected function name"),
+                };
+
+                self.inc();
+                let mut args = Vec::new();
+                while self.peek() != Some(&Token::CloseParen) {
+                    let expr = self.parse_expr()?;
+                    args.push(expr);
+                    if self.peek() == Some(&Token::Comma) {
+                        self.inc();
+                    }
+                }
+                self.inc();
+
+                return Ok(Expression {
+                    variant: ExpressionVariant::FunctionCall {
+                        name: Identifier { name: fn_name },
+                        args,
+                    },
                 });
             }
 
