@@ -246,3 +246,23 @@ fn test_or() {
     let status = compile_and_run(prog);
     assert_eq!(status.code(), Some(1));
 }
+
+#[test]
+fn test_compound_condition() {
+    let prog = r#"
+        fn main() {
+            let x = 1;
+            let y = 2;
+            let z = 3;
+
+            if x < y && y < z && z > 4 {
+                exit(1);
+            } else {
+                exit(2);
+            }
+        }
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(2));
+}

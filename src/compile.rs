@@ -105,8 +105,8 @@ impl Compiler {
                         )));
                     }
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
-                        self.compile_expr(*lhs, identifiers);
-                        self.compile_expr(*rhs, identifiers);
+                        self.compile_expr(*lhs, identifiers, None);
+                        self.compile_expr(*rhs, identifiers, None);
                         self.instructions.push(Instruction::Pop(Reg::Rax));
                         self.instructions.push(Instruction::Pop(Reg::Rdi));
 
@@ -120,7 +120,7 @@ impl Compiler {
 
                         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
                         for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
-                            self.compile_expr(arg, identifiers);
+                            self.compile_expr(arg, identifiers, None);
                             self.instructions.push(Instruction::Pop(reg));
                         }
 
@@ -180,8 +180,8 @@ impl Compiler {
                         }
                     },
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
-                        self.compile_expr(*lhs, identifiers);
-                        self.compile_expr(*rhs, identifiers);
+                        self.compile_expr(*lhs, identifiers, None);
+                        self.compile_expr(*rhs, identifiers, None);
                         self.instructions.push(Instruction::Pop(Reg::Rbx));
                         self.instructions.push(Instruction::Pop(Reg::Rax));
 
@@ -200,7 +200,7 @@ impl Compiler {
 
                         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
                         for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
-                            self.compile_expr(arg, identifiers);
+                            self.compile_expr(arg, identifiers, None);
                             self.instructions.push(Instruction::Pop(reg));
                         }
 
@@ -240,8 +240,10 @@ impl Compiler {
                 self.instructions
                     .push(Instruction::Label(cond_label.clone()));
 
-                self.compile_expr(cond, identifiers);
-                self.compile_condition_check(op, done_label.clone());
+                self.compile_expr(cond, identifiers, Some(done_label.clone()));
+                if op.is_none_or(|x| !x.is_cmp()) {
+                    self.compile_condition_check(op, done_label.clone());
+                }
 
                 for stmt in body {
                     self.compile_statement(stmt, identifiers);
@@ -250,7 +252,7 @@ impl Compiler {
                 self.instructions.push(Instruction::Label(done_label));
             }
             StatementVariant::Assignment { ident, expr } => {
-                self.compile_expr(expr, identifiers);
+                self.compile_expr(expr, identifiers, None);
                 let loc = identifiers.get(&ident.name).expect("identifier not found");
                 let offset = match loc {
                     VariableLocation::Offset(offset) => *offset,
@@ -275,14 +277,14 @@ impl Compiler {
 
                 let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
                 for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
-                    self.compile_expr(arg, identifiers);
+                    self.compile_expr(arg, identifiers, None);
                     self.instructions.push(Instruction::Pop(reg));
                 }
 
                 self.instructions.push(Instruction::Call(name.name));
             }
             StatementVariant::Return(expr) => {
-                self.compile_expr(expr, identifiers);
+                self.compile_expr(expr, identifiers, None);
                 self.instructions.push(Instruction::Pop(Reg::Rax));
                 self.instructions.push(Instruction::Pop(Reg::Rbp));
                 self.instructions.push(Instruction::Ret);
@@ -294,6 +296,7 @@ impl Compiler {
         &mut self,
         expr: Expression,
         identifiers: &mut HashMap<String, VariableLocation>,
+        label: Option<String>,
     ) {
         match expr.variant {
             ExpressionVariant::Term(term) => {
@@ -301,8 +304,8 @@ impl Compiler {
                 self.instructions.push(Instruction::Push(Reg::Rax));
             }
             ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
-                self.compile_expr(*lhs, identifiers);
-                self.compile_expr(*rhs, identifiers);
+                self.compile_expr(*lhs, identifiers, label.clone());
+                self.compile_expr(*rhs, identifiers, label.clone());
                 self.instructions.push(Instruction::Pop(Reg::Rbx));
                 self.instructions.push(Instruction::Pop(Reg::Rax));
 
@@ -311,6 +314,11 @@ impl Compiler {
 
                 if !op.is_cmp() {
                     self.instructions.push(Instruction::Push(Reg::Rax));
+                } else {
+                    self.compile_condition_check(
+                        Some(op),
+                        label.expect("Must have a jump label for cmps"),
+                    );
                 }
             }
             ExpressionVariant::FunctionCall { name, args } => {
@@ -320,7 +328,7 @@ impl Compiler {
 
                 let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
                 for (arg, reg) in args.into_iter().zip(arg_regs.iter()) {
-                    self.compile_expr(arg, identifiers);
+                    self.compile_expr(arg, identifiers, None);
                     self.instructions.push(Instruction::Pop(*reg));
                 }
 
@@ -340,8 +348,11 @@ impl Compiler {
         let done = format!("_if_done{}", self.seq());
         let op = extract_binary_op(&cond);
 
-        self.compile_expr(cond, identifiers);
-        self.compile_condition_check(op, fail_condition.clone());
+        self.compile_expr(cond, identifiers, Some(fail_condition.clone()));
+
+        if op.is_none_or(|x| !x.is_cmp()) {
+            self.compile_condition_check(op, fail_condition.clone());
+        }
 
         for stmt in then {
             self.compile_statement(stmt, identifiers);
