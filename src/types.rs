@@ -42,15 +42,13 @@ impl<'a> TypeChecker<'a> {
         }
 
         for stmt in &function.body {
-            self.resolve_statement(stmt)?;
+            self.resolve_statement(stmt, function)?;
         }
-
-        // TODO: validate return type matches function.ret_sig
 
         Ok(())
     }
 
-    fn resolve_statement(&mut self, stmt: &Statement) -> Result<()> {
+    fn resolve_statement(&mut self, stmt: &Statement, parent: &Function) -> Result<()> {
         match &stmt.variant {
             StatementVariant::Exit(expression) => {
                 let expr_type = self.resolve_expr(expression)?;
@@ -73,11 +71,11 @@ impl<'a> TypeChecker<'a> {
                 let _ = self.resolve_expr(cond)?;
 
                 for stmt in then {
-                    self.resolve_statement(stmt)?;
+                    self.resolve_statement(stmt, parent)?;
                 }
 
                 if let Some(els) = els {
-                    self.resolve_else(els)?;
+                    self.resolve_else(els, parent)?;
                 }
 
                 Ok(())
@@ -86,7 +84,7 @@ impl<'a> TypeChecker<'a> {
                 let _ = self.resolve_expr(cond)?;
 
                 for stmt in body {
-                    self.resolve_statement(stmt)?;
+                    self.resolve_statement(stmt, parent)?;
                 }
 
                 Ok(())
@@ -108,29 +106,40 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
-            StatementVariant::FunctionCall { .. } => {
-                // TODO: validate args match function signature
+            StatementVariant::FunctionCall { name, args } => {
+                let func = self
+                    .functions
+                    .get(&name.name)
+                    .ok_or_else(|| anyhow::anyhow!("Function {:?} does not exist", name))?;
 
+                self.validate_function_args(args, func.0)?;
                 Ok(())
             }
-            StatementVariant::Return(_) => {
-                // TODO: Validate return type matches function signature
+            StatementVariant::Return(expr) => {
+                let return_type = self.resolve_expr(expr)?;
 
+                if return_type != parent.ret_sig {
+                    bail!(
+                        "Type mismatch: expected {:?}, found {:?}",
+                        parent.ret_sig,
+                        return_type
+                    );
+                }
                 Ok(())
             }
         }
     }
 
-    fn resolve_else(&mut self, els: &ElseClause) -> Result<()> {
+    fn resolve_else(&mut self, els: &ElseClause, parent: &Function) -> Result<()> {
         if let Some(c) = &els.cond {
             let _ = self.resolve_expr(c)?;
         }
         for s in &els.body {
-            self.resolve_statement(s)?;
+            self.resolve_statement(s, parent)?;
         }
 
         if let Some(e) = &*els.els {
-            self.resolve_else(e)?;
+            self.resolve_else(e, parent)?;
         }
 
         Ok(())
@@ -151,14 +160,15 @@ impl<'a> TypeChecker<'a> {
                 Ok(lhs_type)
             }
             ExpressionVariant::Term(term) => self.resolve_term(term),
-            ExpressionVariant::FunctionCall { name, .. } => {
-                let expected = self
+            ExpressionVariant::FunctionCall { name, args } => {
+                let ctx = self
                     .functions
                     .get(&name.name)
-                    .ok_or_else(|| anyhow::anyhow!("Call to undeclared function"))?
-                    .1
-                    .to_owned();
-                Ok(expected)
+                    .ok_or_else(|| anyhow::anyhow!("Call to undeclared function"))?;
+
+                self.validate_function_args(args, ctx.0)?;
+
+                Ok(ctx.1.to_owned())
             }
         }
     }
@@ -173,6 +183,20 @@ impl<'a> TypeChecker<'a> {
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("Missing identifier: {}", ident)),
         }
+    }
+
+    fn validate_function_args(&self, args: &[Expression], expected: &[Argument]) -> Result<()> {
+        for (arg, expected) in args.iter().zip(expected.iter()) {
+            let arg_type = self.resolve_expr(arg)?;
+            if arg_type != expected.ty {
+                bail!(
+                    "Type mismatch: expected {:?}, found {:?}",
+                    expected.ty,
+                    arg_type
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -253,6 +277,56 @@ mod tests {
             Lexer::new("fn main() { let x = 2; x = false; }")
                 .tokenize()
                 .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_err());
+    }
+
+    #[test]
+    fn test_return_type() {
+        let ast = Parser::new(
+            Lexer::new("fn main() = int { return 2; }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_ok());
+
+        let ast = Parser::new(
+            Lexer::new("fn main() = int { return false; }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_err());
+    }
+
+    #[test]
+    fn test_function_arguments() {
+        let ast = Parser::new(
+            Lexer::new(
+                "fn main() { let x = 1; let y = inc(x); } fn inc(x: int) = int { return x + 1; }",
+            )
+            .tokenize()
+            .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_ok());
+
+        let ast = Parser::new(
+            Lexer::new(
+                "fn main() { let x = false; let y = inc(x); } fn inc(x: int) = int { return x + 1; }",
+            )
+            .tokenize()
+            .unwrap(),
         )
         .parse()
         .unwrap();

@@ -189,8 +189,6 @@ impl Parser {
             functions.push(self.parse_function()?);
         }
 
-        println!("{:?}", functions);
-
         Ok(Program { functions })
     }
 
