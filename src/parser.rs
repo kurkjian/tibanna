@@ -32,7 +32,8 @@ pub struct Argument {
     pub ty: Type,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, strum_macros::Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum Type {
     Void,
     Int,

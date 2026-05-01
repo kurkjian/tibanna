@@ -1,10 +1,17 @@
 use anyhow::{Result, bail};
 use std::collections::HashMap;
+use thiserror::Error;
 
 use crate::parser::{
     Argument, ElseClause, Expression, ExpressionVariant, Function, Program, Statement,
     StatementVariant, Term, Type,
 };
+
+#[derive(Debug, Error)]
+pub enum TypeCheckError {
+    #[error("type mismatch: expected {0}, got {1}")]
+    TypeMismatch(Type, Type),
+}
 
 pub struct TypeChecker<'a> {
     ast: &'a Program,
@@ -53,10 +60,7 @@ impl<'a> TypeChecker<'a> {
             StatementVariant::Exit(expression) => {
                 let expr_type = self.resolve_expr(expression)?;
                 if expr_type != Type::Int {
-                    return Err(anyhow::anyhow!(
-                        "Exit expression must be an integer: {:?}",
-                        expr_type
-                    ));
+                    bail!(TypeCheckError::TypeMismatch(Type::Int, expr_type));
                 }
 
                 Ok(())
@@ -95,22 +99,26 @@ impl<'a> TypeChecker<'a> {
                 match self.symbols.get(&ident.name) {
                     Some(expected_type) if expected_type == &expr_type => Ok(()),
                     Some(expected_type) => {
-                        bail!(
-                            "Type mismatch: expected {:?}, found {:?}",
-                            expected_type,
+                        bail!(TypeCheckError::TypeMismatch(
+                            expected_type.to_owned(),
                             expr_type
-                        );
+                        ));
                     }
                     None => {
-                        bail!("Identifier {:?} does not exist", ident);
+                        panic!(
+                            "Identifier {:?} does not exist. Parser should have caught this",
+                            ident
+                        );
                     }
                 }
             }
             StatementVariant::FunctionCall { name, args } => {
-                let func = self
-                    .functions
-                    .get(&name.name)
-                    .ok_or_else(|| anyhow::anyhow!("Function {:?} does not exist", name))?;
+                let func = self.functions.get(&name.name).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Function {:?} does not exist. Parser should have caught this",
+                        name
+                    )
+                })?;
 
                 self.validate_function_args(args, func.0)?;
                 Ok(())
@@ -119,11 +127,10 @@ impl<'a> TypeChecker<'a> {
                 let return_type = self.resolve_expr(expr)?;
 
                 if return_type != parent.ret_sig {
-                    bail!(
-                        "Type mismatch: expected {:?}, found {:?}",
-                        parent.ret_sig,
+                    bail!(TypeCheckError::TypeMismatch(
+                        parent.ret_sig.to_owned(),
                         return_type
-                    );
+                    ));
                 }
                 Ok(())
             }
@@ -152,7 +159,7 @@ impl<'a> TypeChecker<'a> {
                 let rhs_type = self.resolve_expr(rhs)?;
 
                 if lhs_type != rhs_type {
-                    bail!("Type mismatch: lhs {:?}, rhs {:?}", lhs_type, rhs_type);
+                    bail!(TypeCheckError::TypeMismatch(lhs_type.to_owned(), rhs_type));
                 }
 
                 // TODO: verify <bin_op> can be applied to <lhs_type> and <rhs_type>
@@ -161,10 +168,9 @@ impl<'a> TypeChecker<'a> {
             }
             ExpressionVariant::Term(term) => self.resolve_term(term),
             ExpressionVariant::FunctionCall { name, args } => {
-                let ctx = self
-                    .functions
-                    .get(&name.name)
-                    .ok_or_else(|| anyhow::anyhow!("Call to undeclared function"))?;
+                let ctx = self.functions.get(&name.name).ok_or_else(|| {
+                    anyhow::anyhow!("Call to undeclared function. Parser should have caught this")
+                })?;
 
                 self.validate_function_args(args, ctx.0)?;
 
@@ -177,11 +183,12 @@ impl<'a> TypeChecker<'a> {
         match term {
             Term::IntLit(_) => Ok(Type::Int),
             Term::Bool(_) => Ok(Type::Bool),
-            Term::Identifier(ident) => self
-                .symbols
-                .get(ident)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Missing identifier: {}", ident)),
+            Term::Identifier(ident) => self.symbols.get(ident).cloned().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing identifier: {}. Parser should have caught this",
+                    ident
+                )
+            }),
         }
     }
 
@@ -189,11 +196,10 @@ impl<'a> TypeChecker<'a> {
         for (arg, expected) in args.iter().zip(expected.iter()) {
             let arg_type = self.resolve_expr(arg)?;
             if arg_type != expected.ty {
-                bail!(
-                    "Type mismatch: expected {:?}, found {:?}",
-                    expected.ty,
+                bail!(TypeCheckError::TypeMismatch(
+                    expected.ty.to_owned(),
                     arg_type
-                );
+                ));
             }
         }
         Ok(())
