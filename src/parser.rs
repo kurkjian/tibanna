@@ -7,6 +7,10 @@ pub enum ParseError {
     UnexpectedToken(Token, TokenKind),
     #[error("missing token: expected {0}")]
     MissingToken(TokenKind),
+    #[error("unexpected end of input")]
+    UnexpectedEndOfInput,
+    #[error("expected semicolon after statement")]
+    ExpectedSemiColon,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -169,6 +173,12 @@ impl Parser {
         self.tokens.get(self.index)
     }
 
+    fn next(&mut self) -> Result<Token, ParseError> {
+        let token = self.tokens.get(self.index).cloned();
+        self.inc();
+        token.ok_or(ParseError::UnexpectedEndOfInput)
+    }
+
     fn inc(&mut self) {
         self.index += 1;
     }
@@ -178,6 +188,8 @@ impl Parser {
         while self.peek().is_some() {
             functions.push(self.parse_function()?);
         }
+
+        println!("{:?}", functions);
 
         Ok(Program { functions })
     }
@@ -190,15 +202,7 @@ impl Parser {
         self.parse_token(Token::CloseParen)?;
 
         let ret_sig = self.parse_return_signature()?;
-
-        // TODO: pull this into a fn + combine with Token::While
-        self.parse_token(Token::OpenBrace)?;
-        let mut body = Vec::new();
-        while !matches!(self.peek(), Some(Token::CloseBrace)) {
-            let statement = self.parse_statement()?;
-            body.push(statement);
-        }
-        self.parse_token(Token::CloseBrace)?;
+        let body = self.parse_scope()?;
 
         Ok(Function {
             name: fn_name,
@@ -228,6 +232,18 @@ impl Parser {
         Ok(args)
     }
 
+    fn parse_scope(&mut self) -> Result<Vec<Statement>, ParseError> {
+        self.parse_token(Token::OpenBrace)?;
+        let mut body = Vec::new();
+        while !matches!(self.peek(), Some(Token::CloseBrace)) {
+            let statement = self.parse_statement()?;
+            body.push(statement);
+        }
+        self.parse_token(Token::CloseBrace)?;
+
+        Ok(body)
+    }
+
     fn parse_return_signature(&mut self) -> Result<Type, ParseError> {
         if let Some(Token::Equal) = self.peek() {
             self.inc();
@@ -239,187 +255,121 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParseError> {
-        match self.peek() {
-            Some(Token::Int) => {
-                self.inc();
-                Ok(Type::Int)
-            }
-            Some(Token::Bool) => {
-                self.inc();
-                Ok(Type::Bool)
-            }
-            _ => Err(ParseError::UnexpectedToken(
-                self.peek().unwrap().clone(),
-                TokenKind::Type,
-            )),
+        let next = self.next()?;
+        match next {
+            Token::Int => Ok(Type::Int),
+            Token::Bool => Ok(Type::Bool),
+            _ => Err(ParseError::UnexpectedToken(next, TokenKind::Type)),
         }
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
         let mut end_of_scope = false;
-        if let Some(token) = self.peek() {
-            let statement = match token {
-                Token::Exit => {
-                    self.inc();
+        let token = self.next()?;
+        let statement = match token {
+            Token::Exit => {
+                self.parse_token(Token::OpenParen)?;
+                let expr = self.parse_expr()?;
+                self.parse_token(Token::CloseParen)?;
 
-                    self.parse_token(Token::OpenParen)?;
-                    let expr = self.parse_expr()?;
-                    self.parse_token(Token::CloseParen)?;
+                Statement {
+                    variant: StatementVariant::Exit(expr),
+                }
+            }
+            Token::Let => {
+                let ident = self.parse_ident()?;
+                self.parse_token(Token::Equal)?;
+                let expr = self.parse_expr()?;
+
+                Statement {
+                    variant: StatementVariant::Let { ident, expr },
+                }
+            }
+            Token::If => {
+                let cond = self.parse_expr()?;
+                self.parse_token(Token::OpenBrace)?;
+                let mut body = Vec::new();
+                while !matches!(self.peek(), Some(Token::CloseBrace)) {
+                    let statement = self.parse_statement()?;
+                    body.push(statement);
+                }
+                self.parse_token(Token::CloseBrace)?;
+
+                end_of_scope = true;
+
+                let els = self.parse_else()?;
+                Statement {
+                    variant: StatementVariant::If {
+                        cond,
+                        then: body,
+                        els,
+                    },
+                }
+            }
+            Token::While => {
+                let cond = self.parse_expr()?;
+                let body = self.parse_scope()?;
+
+                end_of_scope = true;
+                Statement {
+                    variant: StatementVariant::While { cond, body },
+                }
+            }
+            Token::Ident(name) => {
+                if matches!(self.peek(), Some(Token::OpenParen)) {
+                    self.inc();
+                    let mut args = Vec::new();
+                    while self.peek() != Some(&Token::CloseParen) {
+                        let expr = self.parse_expr()?;
+                        args.push(expr);
+                        if self.peek() == Some(&Token::Comma) {
+                            self.inc();
+                        }
+                    }
+                    self.inc();
 
                     Statement {
-                        variant: StatementVariant::Exit(expr),
+                        variant: StatementVariant::FunctionCall {
+                            name: Identifier { name },
+                            args,
+                        },
                     }
-                }
-                Token::Let => {
-                    self.inc();
-
-                    let ident = self.parse_ident()?;
+                } else {
                     self.parse_token(Token::Equal)?;
                     let expr = self.parse_expr()?;
-
                     Statement {
-                        variant: StatementVariant::Let { ident, expr },
-                    }
-                }
-                Token::If => {
-                    self.inc();
-
-                    let cond = self.parse_expr()?;
-                    self.parse_token(Token::OpenBrace)?;
-                    let mut body = Vec::new();
-                    while !matches!(self.peek(), Some(Token::CloseBrace)) {
-                        let statement = self.parse_statement()?;
-                        body.push(statement);
-                    }
-                    self.parse_token(Token::CloseBrace)?;
-
-                    end_of_scope = true;
-
-                    let els = self.parse_else()?;
-                    Statement {
-                        variant: StatementVariant::If {
-                            cond,
-                            then: body,
-                            els,
+                        variant: StatementVariant::Assignment {
+                            ident: Identifier { name },
+                            expr,
                         },
                     }
                 }
-                Token::While => {
-                    self.inc();
-
-                    let cond = self.parse_expr()?;
-                    self.parse_token(Token::OpenBrace)?;
-                    let mut body = Vec::new();
-                    while !matches!(self.peek(), Some(Token::CloseBrace)) {
-                        let statement = self.parse_statement()?;
-                        body.push(statement);
-                    }
-                    self.parse_token(Token::CloseBrace)?;
-
-                    end_of_scope = true;
-                    Statement {
-                        variant: StatementVariant::While { cond, body },
-                    }
-                }
-                Token::Ident(name) => {
-                    let name = name.to_owned();
-                    self.inc();
-
-                    if matches!(self.peek(), Some(Token::OpenParen)) {
-                        self.inc();
-                        let mut args = Vec::new();
-                        while self.peek() != Some(&Token::CloseParen) {
-                            let expr = self.parse_expr()?;
-                            args.push(expr);
-                            if self.peek() == Some(&Token::Comma) {
-                                self.inc();
-                            }
-                        }
-                        self.inc();
-
-                        Statement {
-                            variant: StatementVariant::FunctionCall {
-                                name: Identifier { name },
-                                args,
-                            },
-                        }
-                    } else {
-                        self.parse_token(Token::Equal)?;
-                        let expr = self.parse_expr()?;
-                        Statement {
-                            variant: StatementVariant::Assignment {
-                                ident: Identifier { name },
-                                expr,
-                            },
-                        }
-                    }
-                }
-                Token::Return => {
-                    self.inc();
-                    let expr = self.parse_expr()?;
-                    Statement {
-                        variant: StatementVariant::Return(expr),
-                    }
-                }
-                _ => {
-                    todo!("Error handling: Unexpected token: {:?}", token);
-                }
-            };
-
-            let next = self.peek();
-            if matches!(next, Some(Token::Semi)) {
-                self.inc();
-            } else if !end_of_scope {
-                println!("{:?}", statement);
-                todo!(
-                    "Error handling: Expected semicolon after statement: {:?}",
-                    next
-                );
             }
+            Token::Return => {
+                let expr = self.parse_expr()?;
+                Statement {
+                    variant: StatementVariant::Return(expr),
+                }
+            }
+            _ => {
+                todo!("Error handling: Unexpected token: {:?}", token);
+            }
+        };
 
-            return Ok(statement);
+        if !end_of_scope {
+            matches!(self.peek(), Some(Token::Semi))
+                .then(|| self.inc())
+                .ok_or(ParseError::ExpectedSemiColon)?;
         }
 
-        todo!("Error handling: Expected statement");
+        Ok(statement)
     }
 
     fn parse_expr(&mut self) -> Result<Expression, ParseError> {
-        if let Some(token) = self.peek() {
-            let cloned = token.to_owned();
-            let expr = Expression::try_from(token.to_owned())
-                .expect("Could not convert token to expression");
-            self.inc();
-
-            if self.peek().is_some_and(|x| x.is_binary_op()) {
-                let expr = self.climb_precedence(expr, 0)?;
-                if self.peek().is_some_and(|x| x.is_bool()) {
-                    let op = self.peek().unwrap().to_owned();
-                    self.inc();
-
-                    let rhs = self.parse_expr()?;
-                    return Ok(Expression {
-                        variant: ExpressionVariant::BinaryExpr(
-                            Box::new(expr),
-                            Box::new(rhs),
-                            BinOp::from(op),
-                        ),
-                    });
-                }
-
-                return Ok(expr);
-            } else if self.peek().is_some_and(|x| x.is_bool()) {
-                let op = self.peek().unwrap().to_owned();
-                self.inc();
-                let rhs = self.parse_expr()?;
-                return Ok(Expression {
-                    variant: ExpressionVariant::BinaryExpr(
-                        Box::new(expr),
-                        Box::new(rhs),
-                        BinOp::from(op),
-                    ),
-                });
-            } else if self.peek() == Some(&Token::OpenParen) {
-                let fn_name = match cloned {
+        let token = self.next()?;
+        match self.peek() {
+            Some(Token::OpenParen) => {
+                let fn_name = match token {
                     Token::Ident(name) => name,
                     _ => panic!("Expected function name"),
                 };
@@ -435,18 +385,51 @@ impl Parser {
                 }
                 self.inc();
 
-                return Ok(Expression {
+                Ok(Expression {
                     variant: ExpressionVariant::FunctionCall {
                         name: Identifier { name: fn_name },
                         args,
                     },
-                });
+                })
             }
+            Some(op) if op.is_binary_op() => {
+                let lhs = Expression::try_from(token).expect("LHS must be an expression");
+                let expr = self.climb_precedence(lhs, 0)?;
+                if self.peek().is_some_and(|x| x.is_bool()) {
+                    let op = self.peek().unwrap().to_owned();
+                    self.inc();
 
-            return Ok(expr);
+                    let rhs = self.parse_expr()?;
+                    return Ok(Expression {
+                        variant: ExpressionVariant::BinaryExpr(
+                            Box::new(expr),
+                            Box::new(rhs),
+                            BinOp::from(op),
+                        ),
+                    });
+                }
+
+                Ok(expr)
+            }
+            Some(op) if op.is_bool() => {
+                let lhs = Expression::try_from(token).expect("LHS must be an expression");
+                let op = self.peek().unwrap().to_owned();
+                self.inc();
+                let rhs = self.parse_expr()?;
+                Ok(Expression {
+                    variant: ExpressionVariant::BinaryExpr(
+                        Box::new(lhs),
+                        Box::new(rhs),
+                        BinOp::from(op),
+                    ),
+                })
+            }
+            _ => {
+                let expr =
+                    Expression::try_from(token).expect("Could not convert token to expression");
+                Ok(expr)
+            }
         }
-
-        todo!("Error handling: Expected expression");
     }
 
     fn climb_precedence(
