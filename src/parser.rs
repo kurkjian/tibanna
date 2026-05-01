@@ -39,12 +39,12 @@ pub enum Type {
     Bool,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Statement {
     pub variant: StatementVariant,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatementVariant {
     Exit(Expression),
     Let {
@@ -86,7 +86,7 @@ pub enum ExpressionVariant {
     },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ElseClause {
     pub cond: Option<Expression>,
     pub body: Vec<Statement>,
@@ -567,138 +567,108 @@ impl TryFrom<Token> for Expression {
     }
 }
 
-// FIXME: These tests won't play well with adding functions
 #[cfg(test)]
 mod tests {
-    // use crate::lexer::Lexer;
+    use crate::lexer::Lexer;
 
-    // use super::*;
+    use super::*;
 
-    // #[test]
-    // fn test_exit() {
-    //     let tokens = Lexer::new("exit(1);").tokenize().unwrap();
+    fn parse_statements(input: &str) -> Vec<Statement> {
+        let fn_wrapper = format!("fn test() {{ {} }}", input);
+        let mut parser = Parser::new(Lexer::new(&fn_wrapper).tokenize().unwrap());
+        let program = parser.parse().unwrap();
 
-    //     let mut parser = Parser::new(tokens);
-    //     let p = parser.parse().unwrap();
+        program.functions[0].body.clone()
+    }
 
-    //     assert_eq!(
-    //         p,
-    //         Program {
-    //             statements: vec![exit(int(1))],
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_exit() {
+        let ast = parse_statements("exit(1);");
+        assert_eq!(ast, vec![exit(int(1))],);
+    }
 
-    // #[test]
-    // fn test_let_assignment() {
-    //     let tokens = Lexer::new("let x = 420;").tokenize().unwrap();
+    #[test]
+    fn test_let_assignment() {
+        let ast = parse_statements("let x = 420;");
+        assert_eq!(ast, vec![let_("x", int(420))],);
+    }
 
-    //     let mut parser = Parser::new(tokens);
-    //     let p = parser.parse().unwrap();
+    #[test]
+    fn test_bin_op() {
+        let ast = parse_statements("let x = y + 2;");
+        assert_eq!(ast, vec![let_("x", bin(ident("y"), BinOp::Add, int(2)))],);
+    }
 
-    //     assert_eq!(
-    //         p,
-    //         Program {
-    //             statements: vec![let_("x", int(420))],
-    //         }
-    //     );
-    // }
+    #[test]
+    fn test_cond_simple_inequality() {
+        let ast = parse_statements("if x < y { let z = 1; }");
+        assert_eq!(
+            ast,
+            vec![if_(
+                bin(ident("x"), BinOp::Lt, ident("y")),
+                vec![let_("z", int(1))]
+            )],
+        );
+    }
 
-    // #[test]
-    // fn test_bin_op() {
-    //     let tokens = Lexer::new("let x = y + 2;").tokenize().unwrap();
+    #[test]
+    fn test_cond_ineq_with_ops() {
+        let ast = parse_statements("if x + 1 < y * z { let w = 1; }");
+        assert_eq!(
+            ast,
+            vec![if_(
+                bin(
+                    bin(ident("x"), BinOp::Add, int(1)),
+                    BinOp::Lt,
+                    bin(ident("y"), BinOp::Mul, ident("z")),
+                ),
+                vec![let_("w", int(1))]
+            )],
+        );
+    }
 
-    //     let mut parser = Parser::new(tokens);
-    //     let p = parser.parse().unwrap();
+    fn ident(name: &str) -> Expression {
+        Expression {
+            variant: ExpressionVariant::Term(Term::Identifier(name.to_string())),
+        }
+    }
 
-    //     assert_eq!(
-    //         p,
-    //         Program {
-    //             statements: vec![let_("x", bin(ident("y"), BinOp::Add, int(2)))],
-    //         }
-    //     );
-    // }
+    fn int(n: usize) -> Expression {
+        Expression {
+            variant: ExpressionVariant::Term(Term::IntLit(n)),
+        }
+    }
 
-    // #[test]
-    // fn test_cond_simple_inequality() {
-    //     let tokens = Lexer::new("if x < y { let z = 1; }").tokenize().unwrap();
+    fn exit(expr: Expression) -> Statement {
+        Statement {
+            variant: StatementVariant::Exit(expr),
+        }
+    }
 
-    //     let mut parser = Parser::new(tokens);
-    //     let p = parser.parse().unwrap();
+    fn bin(lhs: Expression, op: BinOp, rhs: Expression) -> Expression {
+        Expression {
+            variant: ExpressionVariant::BinaryExpr(Box::new(lhs), Box::new(rhs), op),
+        }
+    }
 
-    //     let cond = bin(ident("x"), BinOp::Lt, ident("y"));
-    //     assert_eq!(
-    //         p,
-    //         Program {
-    //             statements: vec![if_(cond, vec![let_("z", int(1))])],
-    //         }
-    //     );
-    // }
+    fn let_(name: &str, expr: Expression) -> Statement {
+        Statement {
+            variant: StatementVariant::Let {
+                ident: Identifier {
+                    name: name.to_string(),
+                },
+                expr,
+            },
+        }
+    }
 
-    // #[test]
-    // fn test_cond_ineq_with_ops() {
-    //     let tokens = Lexer::new("if x + 1 < y * z { let w = 1; }")
-    //         .tokenize()
-    //         .unwrap();
-
-    //     let mut parser = Parser::new(tokens);
-    //     let p = parser.parse().unwrap();
-
-    //     let cond = bin(
-    //         bin(ident("x"), BinOp::Add, int(1)),
-    //         BinOp::Lt,
-    //         bin(ident("y"), BinOp::Mul, ident("z")),
-    //     );
-    //     assert_eq!(
-    //         p,
-    //         Program {
-    //             statements: vec![if_(cond, vec![let_("w", int(1))])],
-    //         }
-    //     );
-    // }
-
-    // fn ident(name: &str) -> Expression {
-    //     Expression {
-    //         variant: ExpressionVariant::Term(Term::Identifier(name.to_string())),
-    //     }
-    // }
-
-    // fn int(n: usize) -> Expression {
-    //     Expression {
-    //         variant: ExpressionVariant::Term(Term::IntLit(n)),
-    //     }
-    // }
-
-    // fn exit(expr: Expression) -> Statement {
-    //     Statement {
-    //         variant: StatementVariant::Exit(expr),
-    //     }
-    // }
-
-    // fn bin(lhs: Expression, op: BinOp, rhs: Expression) -> Expression {
-    //     Expression {
-    //         variant: ExpressionVariant::BinaryExpr(Box::new(lhs), Box::new(rhs), op),
-    //     }
-    // }
-
-    // fn let_(name: &str, expr: Expression) -> Statement {
-    //     Statement {
-    //         variant: StatementVariant::Let {
-    //             ident: Identifier {
-    //                 name: name.to_string(),
-    //             },
-    //             expr,
-    //         },
-    //     }
-    // }
-
-    // fn if_(cond: Expression, then: Vec<Statement>) -> Statement {
-    //     Statement {
-    //         variant: StatementVariant::If {
-    //             cond,
-    //             then,
-    //             els: None,
-    //         },
-    //     }
-    // }
+    fn if_(cond: Expression, then: Vec<Statement>) -> Statement {
+        Statement {
+            variant: StatementVariant::If {
+                cond,
+                then,
+                els: None,
+            },
+        }
+    }
 }
