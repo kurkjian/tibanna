@@ -125,7 +125,7 @@ impl Compiler {
                         }
 
                         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
-                        for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
+                        for (arg, reg) in args.into_iter().zip(arg_regs) {
                             self.compile_expr(arg, identifiers, None);
                             self.instructions.push(Instruction::Pop(reg));
                         }
@@ -205,7 +205,7 @@ impl Compiler {
                         }
 
                         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
-                        for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
+                        for (arg, reg) in args.into_iter().zip(arg_regs) {
                             self.compile_expr(arg, identifiers, None);
                             self.instructions.push(Instruction::Pop(reg));
                         }
@@ -282,7 +282,7 @@ impl Compiler {
                 }
 
                 let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
-                for (arg, reg) in args.into_iter().zip(arg_regs.into_iter()) {
+                for (arg, reg) in args.into_iter().zip(arg_regs) {
                     self.compile_expr(arg, identifiers, None);
                     self.instructions.push(Instruction::Pop(reg));
                 }
