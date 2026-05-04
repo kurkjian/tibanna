@@ -7,10 +7,18 @@ use crate::parser::{
     StatementVariant, Term, Type,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlFlow {
+    Continues,
+    Returns,
+}
+
 #[derive(Debug, Error)]
 pub enum TypeCheckError {
     #[error("type mismatch: expected {0}, got {1}")]
     TypeMismatch(Type, Type),
+    #[error("not all code paths return in function {0}")]
+    MissingReturn(String),
 }
 
 pub struct TypeChecker<'a> {
@@ -54,14 +62,16 @@ impl<'a> TypeChecker<'a> {
             self.symbols.insert(arg.name.name.clone(), arg.ty.clone());
         }
 
-        for stmt in &function.body {
-            self.resolve_statement(stmt, function)?;
+        let flow = self.resolve_block(&function.body, function)?;
+
+        if function.ret_sig != Type::Void && flow != ControlFlow::Returns {
+            bail!(TypeCheckError::MissingReturn(function.name.name.clone()));
         }
 
         Ok(())
     }
 
-    fn resolve_statement(&mut self, stmt: &Statement, parent: &Function) -> Result<()> {
+    fn resolve_statement(&mut self, stmt: &Statement, parent: &Function) -> Result<ControlFlow> {
         match &stmt.variant {
             StatementVariant::Exit(expression) => {
                 let expr_type = self.resolve_expr(expression)?;
@@ -69,41 +79,44 @@ impl<'a> TypeChecker<'a> {
                     bail!(TypeCheckError::TypeMismatch(Type::Int, expr_type));
                 }
 
-                Ok(())
+                Ok(ControlFlow::Returns)
             }
             StatementVariant::Let { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
                 self.symbols.insert(ident.name.clone(), expr_type);
 
-                Ok(())
+                Ok(ControlFlow::Continues)
             }
             StatementVariant::If { cond, then, els } => {
                 let _ = self.resolve_expr(cond)?;
 
-                for stmt in then {
-                    self.resolve_statement(stmt, parent)?;
-                }
+                let then_flow = self.resolve_block(then, parent)?;
 
-                if let Some(els) = els {
-                    self.resolve_else(els, parent)?;
-                }
+                let else_flow = if let Some(els) = els {
+                    self.resolve_else(els, parent)?
+                } else {
+                    ControlFlow::Continues
+                };
 
-                Ok(())
+                if then_flow == ControlFlow::Returns && else_flow == ControlFlow::Returns {
+                    Ok(ControlFlow::Returns)
+                } else {
+                    Ok(ControlFlow::Continues)
+                }
             }
             StatementVariant::While { cond, body } => {
                 let _ = self.resolve_expr(cond)?;
+                let _ = self.resolve_block(body, parent)?;
 
-                for stmt in body {
-                    self.resolve_statement(stmt, parent)?;
-                }
-
-                Ok(())
+                Ok(ControlFlow::Continues)
             }
             StatementVariant::Assignment { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
 
                 match self.symbols.get(&ident.name) {
-                    Some(expected_type) if expected_type == &expr_type => Ok(()),
+                    Some(expected_type) if expected_type == &expr_type => {
+                        Ok(ControlFlow::Continues)
+                    }
                     Some(expected_type) => {
                         bail!(TypeCheckError::TypeMismatch(
                             expected_type.to_owned(),
@@ -127,7 +140,7 @@ impl<'a> TypeChecker<'a> {
                 })?;
 
                 self.validate_function_args(args, func.0)?;
-                Ok(())
+                Ok(ControlFlow::Continues)
             }
             StatementVariant::Return(expr) => {
                 let return_type = self.resolve_expr(expr)?;
@@ -138,24 +151,41 @@ impl<'a> TypeChecker<'a> {
                         return_type
                     ));
                 }
-                Ok(())
+                Ok(ControlFlow::Returns)
             }
         }
     }
 
-    fn resolve_else(&mut self, els: &ElseClause, parent: &Function) -> Result<()> {
+    fn resolve_else(&mut self, els: &ElseClause, parent: &Function) -> Result<ControlFlow> {
         if let Some(c) = &els.cond {
             let _ = self.resolve_expr(c)?;
         }
-        for s in &els.body {
-            self.resolve_statement(s, parent)?;
+
+        let flow = self.resolve_block(&els.body, parent)?;
+
+        let next_flow = match &*els.els {
+            Some(next) => self.resolve_else(next, parent)?,
+            None => ControlFlow::Returns,
+        };
+
+        if flow == ControlFlow::Returns && next_flow == ControlFlow::Returns {
+            Ok(ControlFlow::Returns)
+        } else {
+            Ok(ControlFlow::Continues)
+        }
+    }
+
+    fn resolve_block(&mut self, block: &[Statement], parent: &Function) -> Result<ControlFlow> {
+        for stmt in block {
+            let flow = self.resolve_statement(stmt, parent)?;
+
+            if flow == ControlFlow::Returns {
+                // TODO: Warn on unreachable code if there's still statements?
+                return Ok(ControlFlow::Returns);
+            }
         }
 
-        if let Some(e) = &*els.els {
-            self.resolve_else(e, parent)?;
-        }
-
-        Ok(())
+        Ok(ControlFlow::Continues)
     }
 
     fn resolve_expr(&self, expr: &Expression) -> Result<Type> {
@@ -344,5 +374,32 @@ mod tests {
         .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_err());
+    }
+
+    #[test]
+    fn test_return_path_validation() {
+        let ast = Parser::new(
+            Lexer::new(
+                "fn main() { let x = 1; let y = inc(x); } fn inc(x: int) = int { if x == 1 { return 2; } else { let y = 3; } }",
+            )
+            .tokenize()
+            .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_err());
+
+        let ast = Parser::new(
+            Lexer::new(
+                "fn main() { let x = 1; let y = inc(x); } fn inc(x: int) = int { if x == 1 { return 2; } else { let y = 3; } return x + 1; }",
+            )
+            .tokenize()
+            .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_ok());
     }
 }
