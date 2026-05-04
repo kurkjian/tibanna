@@ -36,6 +36,12 @@ impl<'a> TypeChecker<'a> {
             );
         }
 
+        if let Some(main) = &self.ast.main {
+            self.functions
+                .insert(main.name.name.clone(), (&main.args, &main.ret_sig));
+            self.resolve_function(main)?;
+        }
+
         for function in self.ast.functions.iter() {
             self.resolve_function(function)?;
         }

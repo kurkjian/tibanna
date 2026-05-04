@@ -34,7 +34,7 @@ impl Compiler {
             Instruction::Label("_start".to_string()),
             Instruction::Push(Reg::Rbp),
             Instruction::Mov(MovArgs::ToReg(Reg::Rbp, Arg64::Reg(Reg::Rsp))),
-            Instruction::Call(program.functions.first().unwrap().name.name.clone()), // FIXME: lol temp hack
+            Instruction::Call("main".to_string()),
         ];
 
         Self {
@@ -53,6 +53,12 @@ impl Compiler {
 
         let functions = std::mem::take(&mut self.program.functions);
         let mut identifiers = HashMap::new();
+
+        if let Some(main) = std::mem::take(&mut self.program.main) {
+            self.compile_function(main, &mut identifiers);
+        } else {
+            todo!("Support lib files that don't have a main function");
+        }
 
         for f in functions {
             self.compile_function(f, &mut identifiers);

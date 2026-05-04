@@ -1,8 +1,8 @@
+fn inc_and_ret(x: int) = int {
+    return x + 1;
+}
+
 fn main() {
     let y = inc_and_ret(0);
     exit(y);
-}
-
-fn inc_and_ret(x: int) = int {
-    return x + 1;
 }

@@ -15,6 +15,7 @@ pub enum ParseError {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Program {
+    pub main: Option<Function>,
     pub functions: Vec<Function>,
 }
 
@@ -186,11 +187,17 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Program, ParseError> {
         let mut functions = Vec::new();
+        let mut main = None;
         while self.peek().is_some() {
-            functions.push(self.parse_function()?);
+            let func = self.parse_function()?;
+            if func.name.name == "main" {
+                main = Some(func);
+            } else {
+                functions.push(func);
+            }
         }
 
-        Ok(Program { functions })
+        Ok(Program { main, functions })
     }
 
     fn parse_function(&mut self) -> Result<Function, ParseError> {
