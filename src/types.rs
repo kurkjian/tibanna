@@ -19,11 +19,13 @@ pub enum TypeCheckError {
     TypeMismatch(Type, Type),
     #[error("not all code paths return in function {0}")]
     MissingReturn(String),
+    #[error("use of undeclared identifier {0}")]
+    UndeclaredIdentifier(String),
 }
 
 pub struct TypeChecker<'a> {
     ast: &'a Program,
-    symbols: HashMap<String, Type>,
+    symbols: Vec<HashMap<String, Type>>,
     functions: HashMap<String, (&'a Vec<Argument>, &'a Type)>,
 }
 
@@ -31,7 +33,7 @@ impl<'a> TypeChecker<'a> {
     pub fn new(ast: &'a Program) -> Self {
         Self {
             ast,
-            symbols: HashMap::new(),
+            symbols: Vec::new(),
             functions: HashMap::new(),
         }
     }
@@ -58,16 +60,22 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn resolve_function(&mut self, function: &Function) -> Result<()> {
+        self.symbols.push(HashMap::new());
+        let scoped = self
+            .symbols
+            .last_mut()
+            .expect("symbols should not be empty");
         for arg in function.args.iter() {
-            self.symbols.insert(arg.name.name.clone(), arg.ty.clone());
+            scoped.insert(arg.name.name.clone(), arg.ty.clone());
         }
 
-        let flow = self.resolve_block(&function.body, function)?;
+        let flow = self.resolve_block(&function.body, function, false)?;
 
         if function.ret_sig != Type::Void && flow != ControlFlow::Returns {
             bail!(TypeCheckError::MissingReturn(function.name.name.clone()));
         }
 
+        self.symbols.pop();
         Ok(())
     }
 
@@ -83,14 +91,18 @@ impl<'a> TypeChecker<'a> {
             }
             StatementVariant::Let { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
-                self.symbols.insert(ident.name.clone(), expr_type);
+                let scoped = self
+                    .symbols
+                    .last_mut()
+                    .expect("symbols should not be empty");
+                scoped.insert(ident.name.clone(), expr_type);
 
                 Ok(ControlFlow::Continues)
             }
             StatementVariant::If { cond, then, els } => {
                 let _ = self.resolve_expr(cond)?;
 
-                let then_flow = self.resolve_block(then, parent)?;
+                let then_flow = self.resolve_block(then, parent, true)?;
 
                 let else_flow = if let Some(els) = els {
                     self.resolve_else(els, parent)?
@@ -106,29 +118,24 @@ impl<'a> TypeChecker<'a> {
             }
             StatementVariant::While { cond, body } => {
                 let _ = self.resolve_expr(cond)?;
-                let _ = self.resolve_block(body, parent)?;
+                let _ = self.resolve_block(body, parent, true)?;
 
                 Ok(ControlFlow::Continues)
             }
             StatementVariant::Assignment { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
 
-                match self.symbols.get(&ident.name) {
-                    Some(expected_type) if expected_type == &expr_type => {
+                if let Some(expected_type) = self.find_identifier(&ident.name) {
+                    if expected_type == &expr_type {
                         Ok(ControlFlow::Continues)
-                    }
-                    Some(expected_type) => {
+                    } else {
                         bail!(TypeCheckError::TypeMismatch(
                             expected_type.to_owned(),
                             expr_type
-                        ));
+                        ))
                     }
-                    None => {
-                        panic!(
-                            "Identifier {:?} does not exist. Parser should have caught this",
-                            ident
-                        );
-                    }
+                } else {
+                    bail!(TypeCheckError::UndeclaredIdentifier(ident.name.clone()))
                 }
             }
             StatementVariant::FunctionCall { name, args } => {
@@ -161,7 +168,7 @@ impl<'a> TypeChecker<'a> {
             let _ = self.resolve_expr(c)?;
         }
 
-        let flow = self.resolve_block(&els.body, parent)?;
+        let flow = self.resolve_block(&els.body, parent, true)?;
 
         let next_flow = match &*els.els {
             Some(next) => self.resolve_else(next, parent)?,
@@ -175,7 +182,16 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn resolve_block(&mut self, block: &[Statement], parent: &Function) -> Result<ControlFlow> {
+    fn resolve_block(
+        &mut self,
+        block: &[Statement],
+        parent: &Function,
+        new_scope: bool,
+    ) -> Result<ControlFlow> {
+        if new_scope {
+            self.symbols.push(HashMap::new());
+        }
+
         for stmt in block {
             let flow = self.resolve_statement(stmt, parent)?;
 
@@ -185,6 +201,9 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
+        if new_scope {
+            self.symbols.pop();
+        }
         Ok(ControlFlow::Continues)
     }
 
@@ -219,11 +238,8 @@ impl<'a> TypeChecker<'a> {
         match term {
             Term::IntLit(_) => Ok(Type::Int),
             Term::Bool(_) => Ok(Type::Bool),
-            Term::Identifier(ident) => self.symbols.get(ident).cloned().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Missing identifier: {}. Parser should have caught this",
-                    ident
-                )
+            Term::Identifier(ident) => self.find_identifier(ident).cloned().ok_or_else(|| {
+                anyhow::anyhow!(TypeCheckError::UndeclaredIdentifier(ident.clone()))
             }),
         }
     }
@@ -239,6 +255,10 @@ impl<'a> TypeChecker<'a> {
             }
         }
         Ok(())
+    }
+
+    fn find_identifier(&self, ident: &str) -> Option<&Type> {
+        self.symbols.iter().rev().find_map(|scope| scope.get(ident))
     }
 }
 
@@ -401,5 +421,24 @@ mod tests {
         .unwrap();
         let mut checker = TypeChecker::new(&ast);
         assert!(checker.check().is_ok());
+    }
+
+    #[test]
+    fn test_variable_scope() {
+        let ast = Parser::new(Lexer::new("fn main() { x = 1; }").tokenize().unwrap())
+            .parse()
+            .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_err());
+
+        let ast = Parser::new(
+            Lexer::new("fn main() { if true { let x = 1; } exit(x); }")
+                .tokenize()
+                .unwrap(),
+        )
+        .parse()
+        .unwrap();
+        let mut checker = TypeChecker::new(&ast);
+        assert!(checker.check().is_err());
     }
 }

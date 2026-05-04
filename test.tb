@@ -1,8 +1,9 @@
-fn inc_and_ret(x: int) = int {
-    return x + 1;
+fn main() {
+    let x = 1;
+    foo();
+    exit(x);
 }
 
-fn main() {
-    let y = inc_and_ret(0);
-    exit(y);
+fn foo() {
+    let y = 1;
 }

@@ -52,7 +52,7 @@ impl Compiler {
         }
 
         let functions = std::mem::take(&mut self.program.functions);
-        let mut identifiers = HashMap::new();
+        let mut identifiers = vec![HashMap::new()];
 
         if let Some(main) = std::mem::take(&mut self.program.main) {
             self.compile_function(main, &mut identifiers);
@@ -70,16 +70,22 @@ impl Compiler {
     fn compile_function(
         &mut self,
         function: Function,
-        identifiers: &mut HashMap<String, VariableLocation>,
+        identifiers: &mut Vec<HashMap<String, VariableLocation>>,
     ) {
+        identifiers.push(HashMap::new());
+        let scope = identifiers.last_mut().expect("scope must exist");
         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
         for (arg, reg) in function.args.iter().zip(arg_regs.iter()) {
-            identifiers.insert(arg.name.name.clone(), VariableLocation::Register(*reg));
+            scope.insert(arg.name.name.clone(), VariableLocation::Register(*reg));
         }
         self.instructions
             .push(Instruction::Label(function.name.name.clone()));
 
         self.instructions.push(Instruction::Push(Reg::Rbp));
+        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
+            Reg::Rbp,
+            Arg64::Reg(Reg::Rsp),
+        )));
 
         let local_vars = count_vars(&function.body);
         self.instructions.push(Instruction::Sub(BinArgs::ToReg(
@@ -87,18 +93,39 @@ impl Compiler {
             Arg64::Unsigned(local_vars * WORD_SIZE),
         )));
 
-        for stmt in function.body {
-            self.compile_statement(stmt, identifiers);
-        }
+        self.compile_scope(function.body, identifiers, false);
 
+        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
+            Reg::Rsp,
+            Arg64::Reg(Reg::Rbp),
+        )));
         self.instructions.push(Instruction::Pop(Reg::Rbp));
         self.instructions.push(Instruction::Ret);
+        identifiers.pop();
+        self.stack_offset = WORD_SIZE;
+    }
+
+    fn compile_scope(
+        &mut self,
+        body: Vec<Statement>,
+        identifiers: &mut Vec<HashMap<String, VariableLocation>>,
+        new_scope: bool,
+    ) {
+        if new_scope {
+            identifiers.push(HashMap::new());
+        }
+        for stmt in body {
+            self.compile_statement(stmt, identifiers);
+        }
+        if new_scope {
+            identifiers.pop();
+        }
     }
 
     fn compile_statement(
         &mut self,
         stmt: Statement,
-        identifiers: &mut HashMap<String, VariableLocation>,
+        identifiers: &mut Vec<HashMap<String, VariableLocation>>,
     ) {
         match stmt.variant {
             StatementVariant::Exit(expr) => {
@@ -142,49 +169,53 @@ impl Compiler {
             }
             StatementVariant::Let { ident, expr } => {
                 let arg = match expr.variant {
-                    ExpressionVariant::Term(term) => match term {
-                        Term::Identifier(name) => {
-                            let loc = identifiers
-                                .get(&name)
-                                .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
+                    ExpressionVariant::Term(term) => {
+                        let scope = identifiers.last_mut().expect("scope must exist");
 
-                            match loc {
-                                VariableLocation::Offset(offset) => {
-                                    let mem_ref = MemRef {
-                                        reg: Reg::Rbp,
-                                        offset: *offset,
-                                    };
+                        match term {
+                            Term::Identifier(name) => {
+                                let loc = scope
+                                    .get(&name)
+                                    .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
 
-                                    identifiers.insert(
-                                        ident.name,
-                                        VariableLocation::Offset(self.stack_offset),
-                                    );
-                                    Arg64::Mem(mem_ref)
-                                }
-                                VariableLocation::Register(reg) => {
-                                    let r = *reg;
-                                    identifiers.insert(
-                                        ident.name,
-                                        VariableLocation::Offset(self.stack_offset),
-                                    );
+                                match loc {
+                                    VariableLocation::Offset(offset) => {
+                                        let mem_ref = MemRef {
+                                            reg: Reg::Rbp,
+                                            offset: *offset,
+                                        };
 
-                                    Arg64::Reg(r)
+                                        scope.insert(
+                                            ident.name,
+                                            VariableLocation::Offset(self.stack_offset),
+                                        );
+                                        Arg64::Mem(mem_ref)
+                                    }
+                                    VariableLocation::Register(reg) => {
+                                        let r = *reg;
+                                        scope.insert(
+                                            ident.name,
+                                            VariableLocation::Offset(self.stack_offset),
+                                        );
+
+                                        Arg64::Reg(r)
+                                    }
                                 }
                             }
-                        }
-                        Term::IntLit(value) => {
-                            let loc = VariableLocation::Offset(self.stack_offset);
-                            identifiers.insert(ident.name, loc);
+                            Term::IntLit(value) => {
+                                let loc = VariableLocation::Offset(self.stack_offset);
+                                scope.insert(ident.name, loc);
 
-                            Arg64::Unsigned(value)
-                        }
-                        Term::Bool(b) => {
-                            let loc = VariableLocation::Offset(self.stack_offset);
-                            identifiers.insert(ident.name, loc);
+                                Arg64::Unsigned(value)
+                            }
+                            Term::Bool(b) => {
+                                let loc = VariableLocation::Offset(self.stack_offset);
+                                scope.insert(ident.name, loc);
 
-                            Arg64::Unsigned(b as usize)
+                                Arg64::Unsigned(b as usize)
+                            }
                         }
-                    },
+                    }
                     ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers, None);
                         self.compile_expr(*rhs, identifiers, None);
@@ -195,7 +226,8 @@ impl Compiler {
                         self.instructions.extend(instr);
 
                         let loc = VariableLocation::Offset(self.stack_offset);
-                        identifiers.insert(ident.name, loc);
+                        let scope = identifiers.last_mut().expect("scope must exist");
+                        scope.insert(ident.name, loc);
 
                         Arg64::Reg(Reg::Rax)
                     }
@@ -213,7 +245,8 @@ impl Compiler {
                         self.instructions.push(Instruction::Call(name.name));
 
                         let loc = VariableLocation::Offset(self.stack_offset);
-                        identifiers.insert(ident.name, loc);
+                        let scope = identifiers.last_mut().expect("scope must exist");
+                        scope.insert(ident.name, loc);
 
                         Arg64::Reg(Reg::Rax)
                     }
@@ -251,15 +284,14 @@ impl Compiler {
                     self.compile_condition_check(op, done_label.clone());
                 }
 
-                for stmt in body {
-                    self.compile_statement(stmt, identifiers);
-                }
+                self.compile_scope(body, identifiers, true);
+
                 self.instructions.push(Instruction::Jmp(cond_label));
                 self.instructions.push(Instruction::Label(done_label));
             }
             StatementVariant::Assignment { ident, expr } => {
                 self.compile_expr(expr, identifiers, None);
-                let loc = identifiers.get(&ident.name).expect("identifier not found");
+                let loc = find_identifier(identifiers, &ident.name).expect("identifier not found");
                 let offset = match loc {
                     VariableLocation::Offset(offset) => *offset,
                     VariableLocation::Register(_) => {
@@ -301,7 +333,7 @@ impl Compiler {
     fn compile_expr(
         &mut self,
         expr: Expression,
-        identifiers: &mut HashMap<String, VariableLocation>,
+        identifiers: &mut Vec<HashMap<String, VariableLocation>>,
         label: Option<String>,
     ) {
         match expr.variant {
@@ -345,7 +377,7 @@ impl Compiler {
 
     fn compile_if(
         &mut self,
-        identifiers: &mut HashMap<String, VariableLocation>,
+        identifiers: &mut Vec<HashMap<String, VariableLocation>>,
         cond: Expression,
         then: Vec<Statement>,
         els: Option<ElseClause>,
@@ -360,9 +392,7 @@ impl Compiler {
             self.compile_condition_check(op, fail_condition.clone());
         }
 
-        for stmt in then {
-            self.compile_statement(stmt, identifiers);
-        }
+        self.compile_scope(then, identifiers, true);
 
         if els.is_some() {
             // Skip the else branch if the condition was true
@@ -374,16 +404,14 @@ impl Compiler {
             if let Some(cond) = clause.cond {
                 self.compile_if(identifiers, cond, clause.body, *clause.els);
             } else {
-                for stmt in clause.body {
-                    self.compile_statement(stmt, identifiers);
-                }
+                self.compile_scope(clause.body, identifiers, true);
             }
         }
 
         self.instructions.push(Instruction::Label(done));
     }
 
-    fn compile_term(&mut self, term: Term, identifiers: &HashMap<String, VariableLocation>) {
+    fn compile_term(&mut self, term: Term, identifiers: &[HashMap<String, VariableLocation>]) {
         match term {
             Term::IntLit(value) => {
                 self.instructions.push(Instruction::Mov(MovArgs::ToReg(
@@ -392,9 +420,7 @@ impl Compiler {
                 )));
             }
             Term::Identifier(name) => {
-                let var = identifiers
-                    .get(&name)
-                    .unwrap_or_else(|| panic!("Undeclared identifier: {name:?}"));
+                let var = find_identifier(identifiers, &name).expect("identifier not found");
 
                 match var {
                     VariableLocation::Offset(offset) => {
@@ -522,4 +548,11 @@ fn extract_binary_op(expr: &Expression) -> Option<BinOp> {
     } else {
         None
     }
+}
+
+fn find_identifier<'a>(
+    identifiers: &'a [HashMap<String, VariableLocation>],
+    ident: &str,
+) -> Option<&'a VariableLocation> {
+    identifiers.iter().rev().find_map(|scope| scope.get(ident))
 }

@@ -49,6 +49,24 @@ fn test_function_return() {
 }
 
 #[test]
+fn test_function_implicit_return() {
+    let prog = r#"
+        fn main() {
+            let x = 1;
+            foo();
+            exit(x);
+        }
+
+        fn foo() {
+            let y = 1;
+        }
+    "#;
+
+    let status = compile_and_run(prog);
+    assert_eq!(status.code(), Some(1));
+}
+
+#[test]
 fn test_main_entry() {
     let prog = r#"
         fn inc_and_ret(x: int) = int {
