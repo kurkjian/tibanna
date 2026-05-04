@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
+    analyze::Analyzer,
     asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
     parser::{
         BinOp, ElseClause, Expression, ExpressionVariant, Function, Program, Statement,
         StatementVariant, Term,
     },
-    types::TypeChecker,
 };
 
 const EXIT_SYSCALL: usize = 60;
@@ -46,9 +46,9 @@ impl Compiler {
     }
 
     pub fn compile(mut self) -> Vec<Instruction> {
-        let res = TypeChecker::new(&self.program).check();
+        let res = Analyzer::new(&self.program).check();
         if res.is_err() {
-            panic!("Type checker resulted in an error: {res:?}");
+            panic!("Semantic analysis resulted in an error: {res:?}");
         }
 
         let functions = std::mem::take(&mut self.program.functions);

@@ -14,22 +14,24 @@ enum ControlFlow {
 }
 
 #[derive(Debug, Error)]
-pub enum TypeCheckError {
+pub enum SemanticAnalysisError {
     #[error("type mismatch: expected {0}, got {1}")]
     TypeMismatch(Type, Type),
     #[error("not all code paths return in function {0}")]
     MissingReturn(String),
     #[error("use of undeclared identifier {0}")]
     UndeclaredIdentifier(String),
+    #[error("use of undefined function {0}")]
+    UndefinedFunction(String),
 }
 
-pub struct TypeChecker<'a> {
+pub struct Analyzer<'a> {
     ast: &'a Program,
     symbols: Vec<HashMap<String, Type>>,
     functions: HashMap<String, (&'a Vec<Argument>, &'a Type)>,
 }
 
-impl<'a> TypeChecker<'a> {
+impl<'a> Analyzer<'a> {
     pub fn new(ast: &'a Program) -> Self {
         Self {
             ast,
@@ -72,7 +74,9 @@ impl<'a> TypeChecker<'a> {
         let flow = self.resolve_block(&function.body, function, false)?;
 
         if function.ret_sig != Type::Void && flow != ControlFlow::Returns {
-            bail!(TypeCheckError::MissingReturn(function.name.name.clone()));
+            bail!(SemanticAnalysisError::MissingReturn(
+                function.name.name.clone()
+            ));
         }
 
         self.symbols.pop();
@@ -84,7 +88,7 @@ impl<'a> TypeChecker<'a> {
             StatementVariant::Exit(expression) => {
                 let expr_type = self.resolve_expr(expression)?;
                 if expr_type != Type::Int {
-                    bail!(TypeCheckError::TypeMismatch(Type::Int, expr_type));
+                    bail!(SemanticAnalysisError::TypeMismatch(Type::Int, expr_type));
                 }
 
                 Ok(ControlFlow::Returns)
@@ -129,22 +133,22 @@ impl<'a> TypeChecker<'a> {
                     if expected_type == &expr_type {
                         Ok(ControlFlow::Continues)
                     } else {
-                        bail!(TypeCheckError::TypeMismatch(
+                        bail!(SemanticAnalysisError::TypeMismatch(
                             expected_type.to_owned(),
                             expr_type
                         ))
                     }
                 } else {
-                    bail!(TypeCheckError::UndeclaredIdentifier(ident.name.clone()))
+                    bail!(SemanticAnalysisError::UndeclaredIdentifier(
+                        ident.name.clone()
+                    ))
                 }
             }
             StatementVariant::FunctionCall { name, args } => {
-                let func = self.functions.get(&name.name).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Function {:?} does not exist. Parser should have caught this",
-                        name
-                    )
-                })?;
+                let func = self
+                    .functions
+                    .get(&name.name)
+                    .ok_or_else(|| SemanticAnalysisError::UndefinedFunction(name.name.clone()))?;
 
                 self.validate_function_args(args, func.0)?;
                 Ok(ControlFlow::Continues)
@@ -153,7 +157,7 @@ impl<'a> TypeChecker<'a> {
                 let return_type = self.resolve_expr(expr)?;
 
                 if return_type != parent.ret_sig {
-                    bail!(TypeCheckError::TypeMismatch(
+                    bail!(SemanticAnalysisError::TypeMismatch(
                         parent.ret_sig.to_owned(),
                         return_type
                     ));
@@ -214,7 +218,10 @@ impl<'a> TypeChecker<'a> {
                 let rhs_type = self.resolve_expr(rhs)?;
 
                 if lhs_type != rhs_type {
-                    bail!(TypeCheckError::TypeMismatch(lhs_type.to_owned(), rhs_type));
+                    bail!(SemanticAnalysisError::TypeMismatch(
+                        lhs_type.to_owned(),
+                        rhs_type
+                    ));
                 }
 
                 // TODO: verify <bin_op> can be applied to <lhs_type> and <rhs_type>
@@ -223,9 +230,10 @@ impl<'a> TypeChecker<'a> {
             }
             ExpressionVariant::Term(term) => self.resolve_term(term),
             ExpressionVariant::FunctionCall { name, args } => {
-                let ctx = self.functions.get(&name.name).ok_or_else(|| {
-                    anyhow::anyhow!("Call to undeclared function. Parser should have caught this")
-                })?;
+                let ctx = self
+                    .functions
+                    .get(&name.name)
+                    .ok_or_else(|| SemanticAnalysisError::UndefinedFunction(name.name.clone()))?;
 
                 self.validate_function_args(args, ctx.0)?;
 
@@ -239,7 +247,7 @@ impl<'a> TypeChecker<'a> {
             Term::IntLit(_) => Ok(Type::Int),
             Term::Bool(_) => Ok(Type::Bool),
             Term::Identifier(ident) => self.find_identifier(ident).cloned().ok_or_else(|| {
-                anyhow::anyhow!(TypeCheckError::UndeclaredIdentifier(ident.clone()))
+                anyhow::anyhow!(SemanticAnalysisError::UndeclaredIdentifier(ident.clone()))
             }),
         }
     }
@@ -248,7 +256,7 @@ impl<'a> TypeChecker<'a> {
         for (arg, expected) in args.iter().zip(expected.iter()) {
             let arg_type = self.resolve_expr(arg)?;
             if arg_type != expected.ty {
-                bail!(TypeCheckError::TypeMismatch(
+                bail!(SemanticAnalysisError::TypeMismatch(
                     expected.ty.to_owned(),
                     arg_type
                 ));
@@ -278,7 +286,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
 
         let ast = Parser::new(
@@ -288,7 +296,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
     }
 
@@ -297,7 +305,7 @@ mod tests {
         let ast = Parser::new(Lexer::new("fn main() { exit(false); }").tokenize().unwrap())
             .parse()
             .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
 
         let ast = Parser::new(
@@ -307,19 +315,19 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
 
         let ast = Parser::new(Lexer::new("fn main() { exit(2); }").tokenize().unwrap())
             .parse()
             .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
 
         let ast = Parser::new(Lexer::new("fn main() { exit(2 + 2); }").tokenize().unwrap())
             .parse()
             .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
     }
 
@@ -332,7 +340,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
 
         let ast = Parser::new(
@@ -342,7 +350,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
     }
 
@@ -355,7 +363,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
 
         let ast = Parser::new(
@@ -365,7 +373,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
     }
 
@@ -380,7 +388,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
 
         let ast = Parser::new(
@@ -392,7 +400,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
     }
 
@@ -407,7 +415,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
 
         let ast = Parser::new(
@@ -419,7 +427,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_ok());
     }
 
@@ -428,7 +436,7 @@ mod tests {
         let ast = Parser::new(Lexer::new("fn main() { x = 1; }").tokenize().unwrap())
             .parse()
             .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
 
         let ast = Parser::new(
@@ -438,7 +446,7 @@ mod tests {
         )
         .parse()
         .unwrap();
-        let mut checker = TypeChecker::new(&ast);
+        let mut checker = Analyzer::new(&ast);
         assert!(checker.check().is_err());
     }
 }
