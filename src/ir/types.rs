@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::collections::HashMap;
 
 use crate::parser::{Expression, Statement};
 
@@ -12,7 +12,6 @@ pub enum Operation {
     Sub(VirtualRegister, VirtualRegister),
     Mul(VirtualRegister, VirtualRegister),
     Eq(VirtualRegister, VirtualRegister),
-    Ne(VirtualRegister, VirtualRegister),
     Lt(VirtualRegister, VirtualRegister),
     Leq(VirtualRegister, VirtualRegister),
     Gt(VirtualRegister, VirtualRegister),
@@ -34,18 +33,6 @@ pub struct VirtualRegister(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockId(pub usize);
-
-impl fmt::Display for VirtualRegister {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "_v{}", self.0)
-    }
-}
-
-impl fmt::Display for BlockId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "b{}", self.0)
-    }
-}
 
 pub struct TIRBlock {
     pub label: BlockId,
