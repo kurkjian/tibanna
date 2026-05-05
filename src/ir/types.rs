@@ -66,3 +66,8 @@ pub enum Terminator {
 
 pub type Branch = (Option<Expression>, Vec<Statement>);
 pub type Env = HashMap<String, VirtualRegister>;
+
+pub struct PendingEdge {
+    pub from: BlockId,
+    pub params: Vec<VirtualRegister>,
+}

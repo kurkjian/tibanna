@@ -2,7 +2,7 @@
 use crate::{
     ir::{
         builder::IRBuilder,
-        types::{Branch, Env, Operation, TIRFunction, Terminator, VirtualRegister},
+        types::{Branch, Env, Operation, PendingEdge, TIRFunction, Terminator, VirtualRegister},
     },
     parser::{BinOp, ElseClause, Expression, Function, Statement, Term},
 };
@@ -80,24 +80,14 @@ fn lower_if(
     let branches = flatten_if_chain(cond, then_body, else_clause);
     let vars: Vec<String> = env.keys().cloned().collect();
 
-    let merge_block = builder.init_block();
-    let mut incoming = vec![];
+    let mut pending_edges = vec![];
     let mut next_block = builder.current();
-    let len = branches.len();
 
-    for (i, (cond_opt, body)) in branches.into_iter().enumerate() {
-        let is_last = i == len - 1;
-
+    for (cond_opt, body) in branches.into_iter() {
         if let Some(cond_expr) = cond_opt {
             let then_block = builder.init_block();
-            let else_block = if is_last {
-                // last condition with no explicit else
-                //
-                // e.g. `if <cond> { ... } else if <cond> { ... }`
-                merge_block
-            } else {
-                builder.init_block()
-            };
+            let else_block = builder.init_block();
+
             builder.switch_to(next_block);
             let cond_v = lower_expr(cond_expr, &env, builder);
             builder.terminate(Terminator::ConditionalBranch {
@@ -112,10 +102,8 @@ fn lower_if(
             let then_env = lower_scope(body, env.clone(), builder);
             if let Some(env_out) = then_env {
                 let vals = vars.iter().map(|v| env_out[v]).collect::<Vec<_>>();
-                incoming.push(vals.clone());
-
-                builder.terminate(Terminator::Branch {
-                    target: merge_block,
+                pending_edges.push(PendingEdge {
+                    from: then_block,
                     params: vals,
                 });
             }
@@ -127,10 +115,8 @@ fn lower_if(
             let else_env = lower_scope(body, env.clone(), builder);
             if let Some(env_out) = else_env {
                 let vals = vars.iter().map(|v| env_out[v]).collect::<Vec<_>>();
-                incoming.push(vals.clone());
-
-                builder.terminate(Terminator::Branch {
-                    target: merge_block,
+                pending_edges.push(PendingEdge {
+                    from: next_block,
                     params: vals,
                 });
             }
@@ -138,12 +124,21 @@ fn lower_if(
     }
 
     // If no branches reach merge
-    if incoming.is_empty() {
+    if pending_edges.is_empty() {
         return env;
     }
 
-    let params = (0..vars.len()).map(|_| builder.value()).collect::<Vec<_>>();
+    let merge_block = builder.init_block();
+    for edge in pending_edges {
+        builder.switch_to(edge.from);
+        builder.terminate(Terminator::Branch {
+            target: merge_block,
+            params: edge.params,
+        });
+    }
     builder.switch_to(merge_block);
+
+    let params = (0..vars.len()).map(|_| builder.value()).collect::<Vec<_>>();
     builder.current_mut().params = params.clone();
     let mut new_env = Env::new();
     for (i, var) in vars.iter().enumerate() {
@@ -163,6 +158,10 @@ fn flatten_if_chain(
     while let Some(clause) = current {
         branches.push((clause.cond, clause.body.clone()));
         current = *clause.els;
+    }
+
+    if branches.last().is_some_and(|x| x.0.is_some()) {
+        branches.push((None, vec![]));
     }
 
     branches
@@ -328,8 +327,9 @@ mod tests {
         };
 
         let tir = lower_function(func);
-        // entry, if, merge
-        assert_eq!(tir.blocks.len(), 3);
+
+        // entry, if, identity-else merge
+        assert_eq!(tir.blocks.len(), 4);
         assert!(find_block_with_terminator(&tir, |t| {
             matches!(t, Terminator::ConditionalBranch { .. })
         }));
@@ -392,7 +392,7 @@ mod tests {
         };
 
         let tir = lower_function(func);
-        assert_eq!(count_blocks(&tir), 6);
+        assert_eq!(count_blocks(&tir), 5);
     }
 
     #[test]
