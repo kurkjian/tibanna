@@ -72,6 +72,10 @@ _v9 = call foo(_v0, _v1)
 
 ### Terminators
 Each block must end with exactly one terminator
+#### Return
+```
+ret _v0
+```
 #### Unconditional Branch
 ```
 br block_id(...)
