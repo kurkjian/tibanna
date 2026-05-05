@@ -2,10 +2,7 @@ use anyhow::{Result, bail};
 use std::collections::HashMap;
 use thiserror::Error;
 
-use crate::parser::{
-    Argument, ElseClause, Expression, ExpressionVariant, Function, Program, Statement,
-    StatementVariant, Term, Type,
-};
+use crate::parser::{Argument, ElseClause, Expression, Function, Program, Statement, Term, Type};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlFlow {
@@ -84,8 +81,8 @@ impl<'a> Analyzer<'a> {
     }
 
     fn resolve_statement(&mut self, stmt: &Statement, parent: &Function) -> Result<ControlFlow> {
-        match &stmt.variant {
-            StatementVariant::Exit(expression) => {
+        match &stmt {
+            Statement::Exit(expression) => {
                 let expr_type = self.resolve_expr(expression)?;
                 if expr_type != Type::Int {
                     bail!(SemanticAnalysisError::TypeMismatch(Type::Int, expr_type));
@@ -93,7 +90,7 @@ impl<'a> Analyzer<'a> {
 
                 Ok(ControlFlow::Returns)
             }
-            StatementVariant::Let { ident, expr } => {
+            Statement::Let { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
                 let scoped = self
                     .symbols
@@ -103,7 +100,7 @@ impl<'a> Analyzer<'a> {
 
                 Ok(ControlFlow::Continues)
             }
-            StatementVariant::If { cond, then, els } => {
+            Statement::If { cond, then, els } => {
                 let _ = self.resolve_expr(cond)?;
 
                 let then_flow = self.resolve_block(then, parent, true)?;
@@ -120,13 +117,13 @@ impl<'a> Analyzer<'a> {
                     Ok(ControlFlow::Continues)
                 }
             }
-            StatementVariant::While { cond, body } => {
+            Statement::While { cond, body } => {
                 let _ = self.resolve_expr(cond)?;
                 let _ = self.resolve_block(body, parent, true)?;
 
                 Ok(ControlFlow::Continues)
             }
-            StatementVariant::Assignment { ident, expr } => {
+            Statement::Assignment { ident, expr } => {
                 let expr_type = self.resolve_expr(expr)?;
 
                 if let Some(expected_type) = self.find_identifier(&ident.name) {
@@ -144,7 +141,7 @@ impl<'a> Analyzer<'a> {
                     ))
                 }
             }
-            StatementVariant::FunctionCall { name, args } => {
+            Statement::FunctionCall { name, args } => {
                 let func = self
                     .functions
                     .get(&name.name)
@@ -153,7 +150,7 @@ impl<'a> Analyzer<'a> {
                 self.validate_function_args(args, func.0)?;
                 Ok(ControlFlow::Continues)
             }
-            StatementVariant::Return(expr) => {
+            Statement::Return(expr) => {
                 let return_type = self.resolve_expr(expr)?;
 
                 if return_type != parent.ret_sig {
@@ -212,8 +209,8 @@ impl<'a> Analyzer<'a> {
     }
 
     fn resolve_expr(&self, expr: &Expression) -> Result<Type> {
-        match &expr.variant {
-            ExpressionVariant::BinaryExpr(lhs, rhs, _bin_op) => {
+        match &expr {
+            Expression::BinaryExpr(lhs, rhs, _bin_op) => {
                 let lhs_type = self.resolve_expr(lhs)?;
                 let rhs_type = self.resolve_expr(rhs)?;
 
@@ -228,8 +225,8 @@ impl<'a> Analyzer<'a> {
 
                 Ok(lhs_type)
             }
-            ExpressionVariant::Term(term) => self.resolve_term(term),
-            ExpressionVariant::FunctionCall { name, args } => {
+            Expression::Term(term) => self.resolve_term(term),
+            Expression::FunctionCall { name, args } => {
                 let ctx = self
                     .functions
                     .get(&name.name)

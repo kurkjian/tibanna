@@ -42,12 +42,7 @@ pub enum Type {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Statement {
-    pub variant: StatementVariant,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum StatementVariant {
+pub enum Statement {
     Exit(Expression),
     Let {
         ident: Identifier,
@@ -74,12 +69,7 @@ pub enum StatementVariant {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Expression {
-    pub variant: ExpressionVariant,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ExpressionVariant {
+pub enum Expression {
     BinaryExpr(Box<Expression>, Box<Expression>, BinOp),
     Term(Term),
     FunctionCall {
@@ -278,18 +268,14 @@ impl Parser {
                 let expr = self.parse_expr()?;
                 self.parse_token(Token::CloseParen)?;
 
-                Statement {
-                    variant: StatementVariant::Exit(expr),
-                }
+                Statement::Exit(expr)
             }
             Token::Let => {
                 let ident = self.parse_ident()?;
                 self.parse_token(Token::Equal)?;
                 let expr = self.parse_expr()?;
 
-                Statement {
-                    variant: StatementVariant::Let { ident, expr },
-                }
+                Statement::Let { ident, expr }
             }
             Token::If => {
                 let cond = self.parse_expr()?;
@@ -304,12 +290,10 @@ impl Parser {
                 end_of_scope = true;
 
                 let els = self.parse_else()?;
-                Statement {
-                    variant: StatementVariant::If {
-                        cond,
-                        then: body,
-                        els,
-                    },
+                Statement::If {
+                    cond,
+                    then: body,
+                    els,
                 }
             }
             Token::While => {
@@ -317,9 +301,7 @@ impl Parser {
                 let body = self.parse_scope()?;
 
                 end_of_scope = true;
-                Statement {
-                    variant: StatementVariant::While { cond, body },
-                }
+                Statement::While { cond, body }
             }
             Token::Ident(name) => {
                 if matches!(self.peek(), Some(Token::OpenParen)) {
@@ -334,28 +316,22 @@ impl Parser {
                     }
                     self.inc();
 
-                    Statement {
-                        variant: StatementVariant::FunctionCall {
-                            name: Identifier { name },
-                            args,
-                        },
+                    Statement::FunctionCall {
+                        name: Identifier { name },
+                        args,
                     }
                 } else {
                     self.parse_token(Token::Equal)?;
                     let expr = self.parse_expr()?;
-                    Statement {
-                        variant: StatementVariant::Assignment {
-                            ident: Identifier { name },
-                            expr,
-                        },
+                    Statement::Assignment {
+                        ident: Identifier { name },
+                        expr,
                     }
                 }
             }
             Token::Return => {
                 let expr = self.parse_expr()?;
-                Statement {
-                    variant: StatementVariant::Return(expr),
-                }
+                Statement::Return(expr)
             }
             _ => {
                 todo!("Error handling: Unexpected token: {:?}", token);
@@ -391,11 +367,9 @@ impl Parser {
                 }
                 self.inc();
 
-                Ok(Expression {
-                    variant: ExpressionVariant::FunctionCall {
-                        name: Identifier { name: fn_name },
-                        args,
-                    },
+                Ok(Expression::FunctionCall {
+                    name: Identifier { name: fn_name },
+                    args,
                 })
             }
             Some(op) if op.is_binary_op() => {
@@ -406,13 +380,11 @@ impl Parser {
                     self.inc();
 
                     let rhs = self.parse_expr()?;
-                    return Ok(Expression {
-                        variant: ExpressionVariant::BinaryExpr(
-                            Box::new(expr),
-                            Box::new(rhs),
-                            BinOp::from(op),
-                        ),
-                    });
+                    return Ok(Expression::BinaryExpr(
+                        Box::new(expr),
+                        Box::new(rhs),
+                        BinOp::from(op),
+                    ));
                 }
 
                 Ok(expr)
@@ -422,13 +394,11 @@ impl Parser {
                 let op = self.peek().unwrap().to_owned();
                 self.inc();
                 let rhs = self.parse_expr()?;
-                Ok(Expression {
-                    variant: ExpressionVariant::BinaryExpr(
-                        Box::new(lhs),
-                        Box::new(rhs),
-                        BinOp::from(op),
-                    ),
-                })
+                Ok(Expression::BinaryExpr(
+                    Box::new(lhs),
+                    Box::new(rhs),
+                    BinOp::from(op),
+                ))
             }
             _ => {
                 let expr =
@@ -447,9 +417,7 @@ impl Parser {
         while lookahead.is_binary_op() && lookahead.precedence() >= min_precedence {
             let op = lookahead;
             self.inc();
-            let mut rhs = Expression {
-                variant: ExpressionVariant::Term(self.parse_term()?),
-            };
+            let mut rhs = Expression::Term(self.parse_term()?);
 
             lookahead = self.peek().unwrap().to_owned();
             while lookahead.is_binary_op() && lookahead.precedence() > op.precedence() {
@@ -458,9 +426,7 @@ impl Parser {
                 lookahead = self.peek().unwrap().to_owned();
             }
 
-            lhs = Expression {
-                variant: ExpressionVariant::BinaryExpr(Box::new(lhs), Box::new(rhs), op.into()),
-            }
+            lhs = Expression::BinaryExpr(Box::new(lhs), Box::new(rhs), op.into())
         }
 
         Ok(lhs)
@@ -552,22 +518,10 @@ impl TryFrom<Token> for Expression {
 
     fn try_from(token: Token) -> Result<Self, Self::Error> {
         match token {
-            Token::IntLit(n) => {
-                let variant = ExpressionVariant::Term(Term::IntLit(n));
-                Ok(Expression { variant })
-            }
-            Token::Ident(ident) => {
-                let variant = ExpressionVariant::Term(Term::Identifier(ident.to_string()));
-                Ok(Expression { variant })
-            }
-            Token::True => {
-                let variant = ExpressionVariant::Term(Term::Bool(true));
-                Ok(Expression { variant })
-            }
-            Token::False => {
-                let variant = ExpressionVariant::Term(Term::Bool(false));
-                Ok(Expression { variant })
-            }
+            Token::IntLit(n) => Ok(Expression::Term(Term::IntLit(n))),
+            Token::Ident(ident) => Ok(Expression::Term(Term::Identifier(ident.to_string()))),
+            Token::True => Ok(Expression::Term(Term::Bool(true))),
+            Token::False => Ok(Expression::Term(Term::Bool(false))),
             _ => Err(()),
         }
     }
@@ -634,47 +588,35 @@ mod tests {
     }
 
     fn ident(name: &str) -> Expression {
-        Expression {
-            variant: ExpressionVariant::Term(Term::Identifier(name.to_string())),
-        }
+        Expression::Term(Term::Identifier(name.to_string()))
     }
 
     fn int(n: usize) -> Expression {
-        Expression {
-            variant: ExpressionVariant::Term(Term::IntLit(n)),
-        }
+        Expression::Term(Term::IntLit(n))
     }
 
     fn exit(expr: Expression) -> Statement {
-        Statement {
-            variant: StatementVariant::Exit(expr),
-        }
+        Statement::Exit(expr)
     }
 
     fn bin(lhs: Expression, op: BinOp, rhs: Expression) -> Expression {
-        Expression {
-            variant: ExpressionVariant::BinaryExpr(Box::new(lhs), Box::new(rhs), op),
-        }
+        Expression::BinaryExpr(Box::new(lhs), Box::new(rhs), op)
     }
 
     fn let_(name: &str, expr: Expression) -> Statement {
-        Statement {
-            variant: StatementVariant::Let {
-                ident: Identifier {
-                    name: name.to_string(),
-                },
-                expr,
+        Statement::Let {
+            ident: Identifier {
+                name: name.to_string(),
             },
+            expr,
         }
     }
 
     fn if_(cond: Expression, then: Vec<Statement>) -> Statement {
-        Statement {
-            variant: StatementVariant::If {
-                cond,
-                then,
-                els: None,
-            },
+        Statement::If {
+            cond,
+            then,
+            els: None,
         }
     }
 }

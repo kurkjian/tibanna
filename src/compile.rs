@@ -3,10 +3,7 @@ use std::collections::HashMap;
 use crate::{
     analyze::Analyzer,
     asm::{Arg64, BinArgs, Instruction, MemRef, MovArgs, Reg},
-    parser::{
-        BinOp, ElseClause, Expression, ExpressionVariant, Function, Program, Statement,
-        StatementVariant, Term,
-    },
+    parser::{BinOp, ElseClause, Expression, Function, Program, Statement, Term},
 };
 
 const EXIT_SYSCALL: usize = 60;
@@ -127,17 +124,17 @@ impl Compiler {
         stmt: Statement,
         identifiers: &mut Vec<HashMap<String, VariableLocation>>,
     ) {
-        match stmt.variant {
-            StatementVariant::Exit(expr) => {
-                match expr.variant {
-                    ExpressionVariant::Term(term) => {
+        match stmt {
+            Statement::Exit(expr) => {
+                match expr {
+                    Expression::Term(term) => {
                         self.compile_term(term, identifiers);
                         self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                             Reg::Rdi,
                             Arg64::Reg(Reg::Rax),
                         )));
                     }
-                    ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
+                    Expression::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers, None);
                         self.compile_expr(*rhs, identifiers, None);
                         self.instructions.push(Instruction::Pop(Reg::Rax));
@@ -146,7 +143,7 @@ impl Compiler {
                         let instr = self.bin_op_to_instr(op, Reg::Rdi, Reg::Rax);
                         self.instructions.extend(instr);
                     }
-                    ExpressionVariant::FunctionCall { name, args } => {
+                    Expression::FunctionCall { name, args } => {
                         if args.len() > 4 {
                             todo!("function call with more than 4 args. need to use stack")
                         }
@@ -167,9 +164,9 @@ impl Compiler {
                 )));
                 self.instructions.push(Instruction::Syscall);
             }
-            StatementVariant::Let { ident, expr } => {
-                let arg = match expr.variant {
-                    ExpressionVariant::Term(term) => {
+            Statement::Let { ident, expr } => {
+                let arg = match expr {
+                    Expression::Term(term) => {
                         let scope = identifiers.last_mut().expect("scope must exist");
 
                         match term {
@@ -216,7 +213,7 @@ impl Compiler {
                             }
                         }
                     }
-                    ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
+                    Expression::BinaryExpr(lhs, rhs, op) => {
                         self.compile_expr(*lhs, identifiers, None);
                         self.compile_expr(*rhs, identifiers, None);
                         self.instructions.push(Instruction::Pop(Reg::Rbx));
@@ -231,7 +228,7 @@ impl Compiler {
 
                         Arg64::Reg(Reg::Rax)
                     }
-                    ExpressionVariant::FunctionCall { name, args } => {
+                    Expression::FunctionCall { name, args } => {
                         if args.len() > 4 {
                             todo!("function call with more than 4 args. need to use stack")
                         }
@@ -268,10 +265,10 @@ impl Compiler {
                 // Point stack offset to next slot reserved for local vars
                 self.stack_offset += WORD_SIZE;
             }
-            StatementVariant::If { cond, then, els } => {
+            Statement::If { cond, then, els } => {
                 self.compile_if(identifiers, cond, then, els);
             }
-            StatementVariant::While { cond, body } => {
+            Statement::While { cond, body } => {
                 let cond_label = format!("_while_cond{}", self.seq());
                 let done_label = format!("_while_done{}", self.seq());
                 let op = extract_binary_op(&cond);
@@ -289,7 +286,7 @@ impl Compiler {
                 self.instructions.push(Instruction::Jmp(cond_label));
                 self.instructions.push(Instruction::Label(done_label));
             }
-            StatementVariant::Assignment { ident, expr } => {
+            Statement::Assignment { ident, expr } => {
                 self.compile_expr(expr, identifiers, None);
                 let loc = find_identifier(identifiers, &ident.name).expect("identifier not found");
                 let offset = match loc {
@@ -308,7 +305,7 @@ impl Compiler {
                     Reg::Rax,
                 )))
             }
-            StatementVariant::FunctionCall { name, args } => {
+            Statement::FunctionCall { name, args } => {
                 if args.len() > 4 {
                     todo!("function call with more than 4 args. need to use stack")
                 }
@@ -321,7 +318,7 @@ impl Compiler {
 
                 self.instructions.push(Instruction::Call(name.name));
             }
-            StatementVariant::Return(expr) => {
+            Statement::Return(expr) => {
                 self.compile_expr(expr, identifiers, None);
                 self.instructions.push(Instruction::Pop(Reg::Rax));
                 self.instructions.push(Instruction::Pop(Reg::Rbp));
@@ -336,12 +333,12 @@ impl Compiler {
         identifiers: &mut Vec<HashMap<String, VariableLocation>>,
         label: Option<String>,
     ) {
-        match expr.variant {
-            ExpressionVariant::Term(term) => {
+        match expr {
+            Expression::Term(term) => {
                 self.compile_term(term, identifiers);
                 self.instructions.push(Instruction::Push(Reg::Rax));
             }
-            ExpressionVariant::BinaryExpr(lhs, rhs, op) => {
+            Expression::BinaryExpr(lhs, rhs, op) => {
                 self.compile_expr(*lhs, identifiers, label.clone());
                 self.compile_expr(*rhs, identifiers, label.clone());
                 self.instructions.push(Instruction::Pop(Reg::Rbx));
@@ -359,7 +356,7 @@ impl Compiler {
                     );
                 }
             }
-            ExpressionVariant::FunctionCall { name, args } => {
+            Expression::FunctionCall { name, args } => {
                 if args.len() > 4 {
                     todo!("function call with more than 4 args. need to use stack")
                 }
@@ -501,10 +498,10 @@ impl Compiler {
 fn count_vars(statements: &[Statement]) -> usize {
     let mut count = 0;
     for stmt in statements {
-        match &stmt.variant {
-            StatementVariant::Let { .. } => count += 1,
-            StatementVariant::Exit(_) => {}
-            StatementVariant::If { then, els, .. } => {
+        match &stmt {
+            Statement::Let { .. } => count += 1,
+            Statement::Exit(_) => {}
+            Statement::If { then, els, .. } => {
                 count += count_vars(then);
                 if let Some(els) = els {
                     count += count_vars(&els.body);
@@ -516,12 +513,12 @@ fn count_vars(statements: &[Statement]) -> usize {
                     }
                 }
             }
-            StatementVariant::While { body, .. } => {
+            Statement::While { body, .. } => {
                 count += count_vars(body);
             }
-            StatementVariant::Assignment { .. } => {}
-            StatementVariant::FunctionCall { .. } => {}
-            StatementVariant::Return(_) => {}
+            Statement::Assignment { .. } => {}
+            Statement::FunctionCall { .. } => {}
+            Statement::Return(_) => {}
         }
     }
     count
@@ -540,10 +537,7 @@ fn to_jmp_instr(op: BinOp, label: String) -> Instruction {
 }
 
 fn extract_binary_op(expr: &Expression) -> Option<BinOp> {
-    if let Expression {
-        variant: ExpressionVariant::BinaryExpr(_, _, op),
-    } = expr
-    {
+    if let Expression::BinaryExpr(_, _, op) = expr {
         Some(*op)
     } else {
         None
