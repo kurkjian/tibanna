@@ -253,3 +253,217 @@ fn lower_expr(expr: Expression, env: &Env, builder: &mut IRBuilder) -> VirtualRe
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::{Identifier, Type};
+
+    use super::*;
+
+    #[test]
+    fn test_simple_arithmetic() {
+        let func = Function {
+            name: ident("main"),
+            args: vec![],
+            ret_sig: Type::Int,
+            body: vec![
+                Statement::Let {
+                    ident: ident("x"),
+                    expr: bin(int(1), int(2), BinOp::Add),
+                },
+                Statement::Return(var("x")),
+            ],
+        };
+
+        let tir = lower_function(func);
+
+        assert_eq!(tir.blocks.len(), 1);
+        assert!(count_instructions(&tir, |op| matches!(op, Operation::Add(_, _))) == 1);
+        assert!(find_block_with_terminator(&tir, |t| matches!(
+            t,
+            Terminator::Return(_)
+        )));
+    }
+
+    #[test]
+    fn test_function_call_statement() {
+        let func = Function {
+            name: ident("main"),
+            args: vec![],
+            ret_sig: Type::Int,
+            body: vec![
+                Statement::FunctionCall {
+                    name: ident("foo"),
+                    args: vec![int(1)],
+                },
+                Statement::Return(int(0)),
+            ],
+        };
+
+        let tir = lower_function(func);
+        assert!(count_instructions(&tir, |op| matches!(op, Operation::Call(_, _))) == 1);
+    }
+
+    #[test]
+    fn test_if_without_else() {
+        let func = Function {
+            name: ident("main"),
+            args: vec![],
+            ret_sig: Type::Int,
+            body: vec![
+                Statement::Let {
+                    ident: ident("x"),
+                    expr: int(1),
+                },
+                Statement::If {
+                    cond: bin(var("x"), int(0), BinOp::Gt),
+                    then: vec![Statement::Assignment {
+                        ident: ident("x"),
+                        expr: int(2),
+                    }],
+                    els: None,
+                },
+                Statement::Return(var("x")),
+            ],
+        };
+
+        let tir = lower_function(func);
+        // entry, if, merge
+        assert_eq!(tir.blocks.len(), 3);
+        assert!(find_block_with_terminator(&tir, |t| {
+            matches!(t, Terminator::ConditionalBranch { .. })
+        }));
+    }
+
+    #[test]
+    fn test_if_else() {
+        let func = Function {
+            name: ident("main"),
+            args: vec![],
+            ret_sig: Type::Int,
+            body: vec![
+                Statement::Let {
+                    ident: ident("x"),
+                    expr: int(1),
+                },
+                Statement::If {
+                    cond: bool(true),
+                    then: vec![Statement::Assignment {
+                        ident: ident("x"),
+                        expr: int(2),
+                    }],
+                    els: Some(ElseClause {
+                        cond: None,
+                        body: vec![Statement::Assignment {
+                            ident: ident("x"),
+                            expr: int(3),
+                        }],
+                        els: Box::new(None),
+                    }),
+                },
+                Statement::Return(var("x")),
+            ],
+        };
+
+        let tir = lower_function(func);
+        // entry, if, else, merge
+        assert_eq!(tir.blocks.len(), 4);
+    }
+
+    #[test]
+    fn test_else_if_chain() {
+        let func = Function {
+            name: ident("main"),
+            args: vec![],
+            ret_sig: Type::Int,
+            body: vec![Statement::If {
+                cond: bool(false),
+                then: vec![Statement::Return(int(1))],
+                els: Some(ElseClause {
+                    cond: Some(bool(false)),
+                    body: vec![Statement::Return(int(2))],
+                    els: Box::new(Some(ElseClause {
+                        cond: None,
+                        body: vec![Statement::Return(int(3))],
+                        els: Box::new(None),
+                    })),
+                }),
+            }],
+        };
+
+        let tir = lower_function(func);
+        assert_eq!(count_blocks(&tir), 6);
+    }
+
+    #[test]
+    fn test_while_loop() {
+        let func = Function {
+            name: ident("main"),
+            args: vec![],
+            ret_sig: Type::Int,
+            body: vec![
+                Statement::Let {
+                    ident: ident("x"),
+                    expr: int(0),
+                },
+                Statement::While {
+                    cond: bin(var("x"), int(10), BinOp::Lt),
+                    body: vec![Statement::Assignment {
+                        ident: ident("x"),
+                        expr: bin(var("x"), int(1), BinOp::Add),
+                    }],
+                },
+                Statement::Return(var("x")),
+            ],
+        };
+
+        let tir = lower_function(func);
+        // entry, cond, body, done
+        assert_eq!(tir.blocks.len(), 4);
+        assert!(find_block_with_terminator(&tir, |t| {
+            matches!(t, Terminator::Branch { .. })
+        }));
+    }
+
+    fn count_blocks(func: &TIRFunction) -> usize {
+        func.blocks.len()
+    }
+
+    fn find_block_with_terminator<F>(func: &TIRFunction, f: F) -> bool
+    where
+        F: Fn(&Terminator) -> bool,
+    {
+        func.blocks.iter().any(|b| f(&b.terminator))
+    }
+
+    fn count_instructions<F>(func: &TIRFunction, f: F) -> usize
+    where
+        F: Fn(&Operation) -> bool,
+    {
+        func.blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter(|instr| f(&instr.op))
+            .count()
+    }
+
+    fn ident(name: &str) -> Identifier {
+        Identifier { name: name.into() }
+    }
+
+    fn int(n: usize) -> Expression {
+        Expression::Term(Term::IntLit(n))
+    }
+
+    fn bool(b: bool) -> Expression {
+        Expression::Term(Term::Bool(b))
+    }
+
+    fn var(name: &str) -> Expression {
+        Expression::Term(Term::Identifier(name.into()))
+    }
+
+    fn bin(lhs: Expression, rhs: Expression, op: BinOp) -> Expression {
+        Expression::BinaryExpr(Box::new(lhs), Box::new(rhs), op)
+    }
+}
