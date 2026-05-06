@@ -18,16 +18,24 @@ impl From<Const> for Operation {
 }
 
 pub fn fold_constants(function: &mut TIRFunction) {
-    let mut env: HashMap<VirtualRegister, Const> = HashMap::new();
+    loop {
+        let mut env: HashMap<VirtualRegister, Const> = HashMap::new();
+        let mut changed = false;
 
-    for block in &mut function.blocks {
-        for instr in &mut block.instructions {
-            if let Some(result) = fold_operation(&instr.op, &env) {
-                env.insert(instr.dest, result);
-                instr.op = result.into();
-            } else if let Some(c) = extract_const(&instr.op) {
-                env.insert(instr.dest, c);
+        for block in &mut function.blocks {
+            for instr in &mut block.instructions {
+                if let Some(result) = fold_operation(&instr.op, &env) {
+                    env.insert(instr.dest, result);
+                    instr.op = result.into();
+                    changed = true;
+                } else if let Some(c) = extract_const(&instr.op) {
+                    env.insert(instr.dest, c);
+                }
             }
+        }
+
+        if !changed {
+            break;
         }
     }
 }
