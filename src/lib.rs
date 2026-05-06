@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod asm;
+pub mod backend;
 pub mod compile;
 pub mod ir;
 pub mod lexer;

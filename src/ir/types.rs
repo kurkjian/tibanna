@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::parser::{Expression, Statement};
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Operation {
     // Consts
     ConstInt(usize),
@@ -28,7 +29,7 @@ pub struct Instruction {
     pub op: Operation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VirtualRegister(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
