@@ -1,12 +1,19 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::ir::types::{Instruction, Operation, TIRFunction, Terminator, VirtualRegister};
+use crate::ir::types::{
+    BlockId, Instruction, Operation, TIRBlock, TIRFunction, Terminator, VirtualRegister,
+};
 
 pub fn dce(function: &mut TIRFunction) {
     loop {
-        let used_registers = find_used_registers(function);
         let mut changed = false;
+        let passthrough_blocks = find_passthrough_blocks(function);
+        function.blocks.retain_mut(|block| {
+            replace_target(block, &passthrough_blocks, &mut changed);
+            !passthrough_blocks.contains_key(&block.label)
+        });
 
+        let used_registers = find_used_registers(function);
         for block in &mut function.blocks {
             block.instructions.retain(|instr| {
                 let keep = used_registers.contains(&instr.dest) || unremovable(instr);
@@ -18,6 +25,56 @@ pub fn dce(function: &mut TIRFunction) {
         if !changed {
             break;
         }
+    }
+}
+
+fn find_passthrough_blocks(function: &TIRFunction) -> HashMap<BlockId, BlockId> {
+    let mut passthrough = HashMap::new();
+    for block in &function.blocks {
+        if block.instructions.is_empty()
+            && let Some(target) = br_target(&block.terminator)
+        {
+            passthrough.insert(block.label, target);
+        }
+    }
+
+    passthrough
+}
+
+fn br_target(terminator: &Terminator) -> Option<BlockId> {
+    match terminator {
+        Terminator::Branch { target, .. } => Some(*target),
+        _ => None,
+    }
+}
+
+fn replace_target(
+    block: &mut TIRBlock,
+    passthrough: &HashMap<BlockId, BlockId>,
+    changed: &mut bool,
+) {
+    match &mut block.terminator {
+        Terminator::Branch { target, .. } => {
+            if let Some(dest) = passthrough.get(target) {
+                *target = *dest;
+                *changed = true;
+            }
+        }
+        Terminator::ConditionalBranch {
+            then_target,
+            else_target,
+            ..
+        } => {
+            if let Some(dest) = passthrough.get(then_target) {
+                *then_target = *dest;
+                *changed = true;
+            }
+            if let Some(dest) = passthrough.get(else_target) {
+                *else_target = *dest;
+                *changed = true;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -95,6 +152,7 @@ mod tests {
             name: "test".into(),
             params: vec![],
             blocks: vec![block(
+                0,
                 vec![Instruction {
                     dest: VirtualRegister(1),
                     op: Operation::ConstInt(2),
@@ -113,6 +171,7 @@ mod tests {
             name: "test".into(),
             params: vec![],
             blocks: vec![block(
+                0,
                 vec![
                     Instruction {
                         dest: VirtualRegister(1),
@@ -145,6 +204,7 @@ mod tests {
             name: "test".into(),
             params: vec![],
             blocks: vec![block(
+                0,
                 vec![
                     Instruction {
                         dest: VirtualRegister(1),
@@ -173,6 +233,7 @@ mod tests {
             name: "test".into(),
             params: vec![],
             blocks: vec![block(
+                0,
                 vec![Instruction {
                     dest: VirtualRegister(1),
                     op: Operation::Call("foo".into(), vec![]),
@@ -191,6 +252,7 @@ mod tests {
             name: "test".into(),
             params: vec![],
             blocks: vec![block(
+                0,
                 vec![Instruction {
                     dest: VirtualRegister(1),
                     op: Operation::ConstInt(42),
@@ -212,6 +274,7 @@ mod tests {
             name: "test".into(),
             params: vec![],
             blocks: vec![block(
+                0,
                 vec![Instruction {
                     dest: VirtualRegister(1),
                     op: Operation::ConstBool(true),
@@ -230,9 +293,56 @@ mod tests {
         assert_eq!(func.blocks[0].instructions.len(), 1);
     }
 
-    fn block(instructions: Vec<Instruction>, terminator: Terminator) -> TIRBlock {
+    #[test]
+    fn test_removes_dead_blocks() {
+        let mut func = TIRFunction {
+            name: "test".into(),
+            params: vec![],
+            blocks: vec![
+                block(
+                    0,
+                    vec![Instruction {
+                        dest: VirtualRegister(0),
+                        op: Operation::ConstInt(1),
+                    }],
+                    Terminator::ConditionalBranch {
+                        cond: VirtualRegister(0),
+                        then_target: BlockId(1),
+                        then_params: vec![],
+                        else_target: BlockId(2),
+                        else_params: vec![],
+                    },
+                ),
+                block(
+                    1,
+                    vec![Instruction {
+                        dest: VirtualRegister(3),
+                        op: Operation::ConstInt(1),
+                    }],
+                    Terminator::Branch {
+                        target: BlockId(3),
+                        params: vec![VirtualRegister(3)],
+                    },
+                ),
+                block(
+                    2,
+                    vec![],
+                    Terminator::Branch {
+                        target: BlockId(3),
+                        params: vec![VirtualRegister(3)],
+                    },
+                ),
+                block(3, vec![], Terminator::Return(VirtualRegister(4))),
+            ],
+        };
+
+        dce(&mut func);
+        assert_eq!(func.blocks.len(), 3);
+    }
+
+    fn block(id: usize, instructions: Vec<Instruction>, terminator: Terminator) -> TIRBlock {
         TIRBlock {
-            label: BlockId(0),
+            label: BlockId(id),
             params: vec![],
             instructions,
             terminator,

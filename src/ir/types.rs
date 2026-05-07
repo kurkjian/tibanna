@@ -32,7 +32,7 @@ pub struct Instruction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VirtualRegister(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub usize);
 
 pub struct TIRBlock {
