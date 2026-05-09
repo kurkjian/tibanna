@@ -1,11 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ir::types::{
-    BlockId, Instruction, Operation, TIRBlock, TIRFunction, Terminator, VirtualRegister,
+use crate::{
+    backend::pass::OptimizationPass,
+    ir::types::{
+        BlockId, Instruction, Operation, TIRBlock, TIRFunction, Terminator, VirtualRegister,
+    },
 };
 
-pub fn dce(function: &mut TIRFunction) {
-    loop {
+#[derive(Default)]
+pub struct DeadCodeElimination;
+
+impl OptimizationPass for DeadCodeElimination {
+    fn run(&mut self, function: &mut TIRFunction) -> bool {
         let mut changed = false;
         let passthrough_blocks = find_passthrough_blocks(function);
         function.blocks.retain_mut(|block| {
@@ -22,9 +28,7 @@ pub fn dce(function: &mut TIRFunction) {
             });
         }
 
-        if !changed {
-            break;
-        }
+        changed
     }
 }
 
@@ -161,7 +165,8 @@ mod tests {
             )],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
         assert!(func.blocks[0].instructions.is_empty());
     }
 
@@ -194,7 +199,14 @@ mod tests {
             )],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+
+        loop {
+            let changed = pass.run(&mut func);
+            if !changed {
+                break;
+            }
+        }
         assert!(func.blocks[0].instructions.is_empty());
     }
 
@@ -223,7 +235,8 @@ mod tests {
             )],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
         assert_eq!(func.blocks[0].instructions.len(), 3);
     }
 
@@ -242,7 +255,8 @@ mod tests {
             )],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
         assert_eq!(func.blocks[0].instructions.len(), 1);
     }
 
@@ -264,7 +278,8 @@ mod tests {
             )],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
         assert_eq!(func.blocks[0].instructions.len(), 1);
     }
 
@@ -289,7 +304,8 @@ mod tests {
             )],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
         assert_eq!(func.blocks[0].instructions.len(), 1);
     }
 
@@ -336,7 +352,8 @@ mod tests {
             ],
         };
 
-        dce(&mut func);
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
         assert_eq!(func.blocks.len(), 3);
     }
 

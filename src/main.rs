@@ -7,7 +7,9 @@ use std::{
     process::Command,
 };
 use tibanna::{
+    backend::{constant::ConstantFolding, dce::DeadCodeElimination, driver::Driver},
     compile::Compiler,
+    ir::lower::lower_program,
     lexer::Lexer,
     parser::{Parser, Program},
 };
@@ -31,7 +33,7 @@ fn main() -> Result<()> {
     let mut asm_file =
         File::create(&output_path).map_err(|e| anyhow!(format!("Could not create file: {}", e)))?;
 
-    let instructions = Compiler::new(program).compile();
+    let instructions = Compiler::new(program.clone()).compile();
     for instr in instructions {
         asm_file
             .write(format!("{}\n", instr).as_bytes())
@@ -43,6 +45,15 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow!(format!("Could not flush file: {}", e)))?;
 
     link()?;
+
+    // FIXME: Clean up old path once backend is fully wired with codegen
+    let ir = lower_program(program);
+    let mut backend = Driver::new(vec![
+        Box::new(ConstantFolding),
+        Box::new(DeadCodeElimination),
+    ]);
+
+    backend.run(ir);
 
     Ok(())
 }

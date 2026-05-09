@@ -1,11 +1,22 @@
-#![allow(dead_code)]
 use crate::{
     ir::{
         builder::IRBuilder,
         types::{Branch, Env, Operation, PendingEdge, TIRFunction, Terminator, VirtualRegister},
     },
-    parser::{BinOp, ElseClause, Expression, Function, Statement, Term},
+    parser::{BinOp, ElseClause, Expression, Function, Program, Statement, Term},
 };
+
+pub fn lower_program(program: Program) -> Vec<TIRFunction> {
+    let mut functions = Vec::new();
+    if let Some(main) = program.main {
+        functions.push(lower_function(main));
+    }
+    for function in program.functions {
+        functions.push(lower_function(function));
+    }
+
+    functions
+}
 
 fn lower_function(function: Function) -> TIRFunction {
     let mut builder = IRBuilder::new();

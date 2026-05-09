@@ -6,7 +6,10 @@ use crate::{
     ir::types::{TIRFunction, VirtualRegister},
 };
 
-fn create_interference_graph(function: &TIRFunction, liveness: Liveness) -> Graph<VirtualRegister> {
+pub fn create_interference_graph(
+    function: &TIRFunction,
+    liveness: Liveness,
+) -> Graph<VirtualRegister> {
     let mut graph = Graph::new();
 
     for block in function.blocks.iter() {
@@ -39,7 +42,7 @@ fn create_interference_graph(function: &TIRFunction, liveness: Liveness) -> Grap
     graph
 }
 
-fn allocate_registers(
+pub fn allocate_registers(
     graph: Graph<VirtualRegister>,
     num_registers: usize,
 ) -> (HashMap<VirtualRegister, usize>, Vec<VirtualRegister>) {

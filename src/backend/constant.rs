@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::ir::types::{Operation, TIRFunction, VirtualRegister};
+use crate::{
+    backend::pass::OptimizationPass,
+    ir::types::{Operation, TIRFunction, VirtualRegister},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Const {
@@ -17,8 +20,11 @@ impl From<Const> for Operation {
     }
 }
 
-pub fn fold_constants(function: &mut TIRFunction) {
-    loop {
+#[derive(Default)]
+pub struct ConstantFolding;
+
+impl OptimizationPass for ConstantFolding {
+    fn run(&mut self, function: &mut TIRFunction) -> bool {
         let mut env: HashMap<VirtualRegister, Const> = HashMap::new();
         let mut changed = false;
 
@@ -34,9 +40,7 @@ pub fn fold_constants(function: &mut TIRFunction) {
             }
         }
 
-        if !changed {
-            break;
-        }
+        changed
     }
 }
 
@@ -104,7 +108,8 @@ mod tests {
             instr(2, Operation::Add(VirtualRegister(0), VirtualRegister(1))),
         ])]);
 
-        fold_constants(&mut f);
+        let mut pass = ConstantFolding;
+        pass.run(&mut f);
 
         match &f.blocks[0].instructions[2].op {
             Operation::ConstInt(v) => assert_eq!(*v, 5),
@@ -121,7 +126,8 @@ mod tests {
             instr(3, Operation::Mul(VirtualRegister(2), VirtualRegister(1))),
         ])]);
 
-        fold_constants(&mut f);
+        let mut pass = ConstantFolding;
+        pass.run(&mut f);
 
         assert_eq!(f.blocks[0].instructions[3].op, Operation::ConstInt(15))
     }
@@ -134,7 +140,8 @@ mod tests {
             instr(2, Operation::Eq(VirtualRegister(0), VirtualRegister(1))),
         ])]);
 
-        fold_constants(&mut f);
+        let mut pass = ConstantFolding;
+        pass.run(&mut f);
 
         assert_eq!(f.blocks[0].instructions[2].op, Operation::ConstBool(true))
     }
@@ -148,7 +155,8 @@ mod tests {
             instr(3, Operation::Or(VirtualRegister(0), VirtualRegister(1))),
         ])]);
 
-        fold_constants(&mut f);
+        let mut pass = ConstantFolding;
+        pass.run(&mut f);
 
         assert_eq!(f.blocks[0].instructions[2].op, Operation::ConstBool(false));
         assert_eq!(f.blocks[0].instructions[3].op, Operation::ConstBool(true));
@@ -162,7 +170,8 @@ mod tests {
             instr(2, Operation::Add(VirtualRegister(0), VirtualRegister(1))), // invalid
         ])]);
 
-        fold_constants(&mut f);
+        let mut pass = ConstantFolding;
+        pass.run(&mut f);
 
         assert_eq!(
             f.blocks[0].instructions[2].op,

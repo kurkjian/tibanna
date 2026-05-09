@@ -13,13 +13,13 @@ pub enum ParseError {
     ExpectedSemiColon,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Program {
     pub main: Option<Function>,
     pub functions: Vec<Function>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Function {
     pub name: Identifier,
     pub args: Vec<Argument>,
@@ -27,7 +27,7 @@ pub struct Function {
     pub body: Vec<Statement>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Argument {
     pub name: Identifier,
     pub ty: Type,
