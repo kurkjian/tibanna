@@ -17,12 +17,17 @@ pub struct Driver<Target> {
 }
 
 impl<T: Target> Driver<T> {
-    pub fn new(passes: Vec<Box<dyn OptimizationPass>>, target: T, path: PathBuf) -> Self {
+    pub fn new(target: T, path: PathBuf) -> Self {
         Self {
-            passes,
+            passes: Vec::new(),
             target,
             path,
         }
+    }
+
+    pub fn with_pass(mut self, pass: impl OptimizationPass + 'static) -> Self {
+        self.passes.push(Box::new(pass));
+        self
     }
 
     pub fn run(mut self, functions: Vec<TIRFunction>) {

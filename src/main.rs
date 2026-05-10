@@ -52,10 +52,11 @@ fn main() -> Result<()> {
     // FIXME: Clean up old path once backend is fully wired with codegen
     let ir = lower_program(program);
     let backend = Driver::new(
-        vec![Box::new(ConstantFolding), Box::new(DeadCodeElimination)],
         X86_64::default(),
         path.parent().unwrap().join("out_pipeline.s"),
-    );
+    )
+    .with_pass(ConstantFolding)
+    .with_pass(DeadCodeElimination);
 
     backend.run(ir);
 
