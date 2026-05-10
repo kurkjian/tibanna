@@ -24,6 +24,7 @@ pub enum Operation {
     Call(String, Vec<VirtualRegister>),
 }
 
+#[derive(Debug)]
 pub struct Instruction {
     pub dest: VirtualRegister,
     pub op: Operation,
@@ -35,6 +36,7 @@ pub struct VirtualRegister(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub usize);
 
+#[derive(Debug)]
 pub struct TIRBlock {
     pub label: BlockId,
     pub params: Vec<VirtualRegister>,
@@ -42,12 +44,14 @@ pub struct TIRBlock {
     pub terminator: Terminator,
 }
 
+#[derive(Debug)]
 pub struct TIRFunction {
     pub name: String,
     pub params: Vec<VirtualRegister>,
     pub blocks: Vec<TIRBlock>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Terminator {
     Void,
     Exit(VirtualRegister),

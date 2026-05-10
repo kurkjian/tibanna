@@ -35,6 +35,15 @@ fn lower_function(function: Function) -> TIRFunction {
 
     lower_scope(function.body, env, &mut builder);
 
+    // handle implicit returns for void functions
+    let last = builder
+        .blocks
+        .last_mut()
+        .expect("must have at least one block");
+    if last.terminator == Terminator::Void {
+        last.terminator = Terminator::Return(VirtualRegister(0));
+    }
+
     TIRFunction {
         name: function.name.name,
         params,
@@ -434,6 +443,27 @@ mod tests {
         assert!(find_block_with_terminator(&tir, |t| {
             matches!(t, Terminator::Branch { .. })
         }));
+    }
+
+    #[test]
+    fn test_implicit_return() {
+        let func = Function {
+            name: ident("foo"),
+            args: vec![],
+            ret_sig: Type::Void,
+            body: vec![Statement::Let {
+                ident: Identifier {
+                    name: "y".to_string(),
+                },
+                expr: Expression::Term(Term::IntLit(1)),
+            }],
+        };
+
+        let tir = lower_function(func);
+        assert_eq!(
+            tir.blocks[0].terminator,
+            Terminator::Return(VirtualRegister(0))
+        );
     }
 
     fn count_blocks(func: &TIRFunction) -> usize {
