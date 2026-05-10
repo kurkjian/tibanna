@@ -216,8 +216,14 @@ fn lower_while(cond: Expression, body: Vec<Statement>, env: Env, builder: &mut I
         else_params: cond_params.clone(),
     });
 
+    let body_params = (0..vars.len()).map(|_| builder.value()).collect::<Vec<_>>();
     builder.switch_to(body_block);
-    let body_env = lower_scope(body, cond_env.clone(), builder).unwrap();
+    builder.current_mut().params = body_params.clone();
+    let mut body_env = Env::new();
+    for (i, var) in vars.iter().enumerate() {
+        body_env.insert(var.clone(), body_params[i]);
+    }
+    let body_env = lower_scope(body, body_env, builder).unwrap();
     let updated_vals = vars.iter().map(|v| body_env[v]).collect();
     builder.terminate(Terminator::Branch {
         target: cond_block,
