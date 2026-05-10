@@ -7,7 +7,10 @@ use std::{
     process::Command,
 };
 use tibanna::{
-    backend::{constant::ConstantFolding, dce::DeadCodeElimination, driver::Driver},
+    backend::{
+        constant::ConstantFolding, dce::DeadCodeElimination, driver::Driver,
+        targets::x86_64::X86_64,
+    },
     compile::Compiler,
     ir::lower::lower_program,
     lexer::Lexer,
@@ -48,10 +51,11 @@ fn main() -> Result<()> {
 
     // FIXME: Clean up old path once backend is fully wired with codegen
     let ir = lower_program(program);
-    let mut backend = Driver::new(vec![
-        Box::new(ConstantFolding),
-        Box::new(DeadCodeElimination),
-    ]);
+    let backend = Driver::new(
+        vec![Box::new(ConstantFolding), Box::new(DeadCodeElimination)],
+        X86_64::default(),
+        path.parent().unwrap().join("out_pipeline.s"),
+    );
 
     backend.run(ir);
 

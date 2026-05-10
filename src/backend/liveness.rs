@@ -4,17 +4,20 @@ use crate::ir::types::{
     BlockId, Instruction, Operation, TIRBlock, TIRFunction, Terminator, VirtualRegister,
 };
 
+#[derive(Debug)]
 pub struct UseDef {
     pub use_set: HashSet<VirtualRegister>,
     pub def_set: HashSet<VirtualRegister>,
 }
 
+#[derive(Debug)]
 pub struct BlockLiveness {
     pub use_def: UseDef,
     pub live_in: HashSet<VirtualRegister>,
     pub live_out: HashSet<VirtualRegister>,
 }
 
+#[derive(Debug)]
 pub struct Liveness {
     pub blocks: HashMap<BlockId, BlockLiveness>,
 }

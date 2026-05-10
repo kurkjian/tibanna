@@ -18,6 +18,7 @@ pub fn create_interference_graph(
             .get(&block.label)
             .expect("Block liveness must exist");
         for p in &block.params {
+            graph.add_vertex(*p);
             for v in &live.live_in {
                 graph.add_edge(*p, *v);
             }
@@ -25,6 +26,7 @@ pub fn create_interference_graph(
 
         let mut live_out = live.live_out.clone();
         for instr in block.instructions.iter().rev() {
+            graph.add_vertex(instr.dest);
             for v in &live_out {
                 graph.add_edge(*v, instr.dest);
             }
