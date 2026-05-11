@@ -15,6 +15,7 @@ use tibanna::{
     ir::lower::lower_program,
     lexer::Lexer,
     parser::{Parser, Program},
+    resolver::Resolver,
 };
 
 fn main() -> Result<()> {
@@ -50,7 +51,8 @@ fn main() -> Result<()> {
     link()?;
 
     // FIXME: Clean up old path once backend is fully wired with codegen
-    let ir = lower_program(program);
+    let resolved = Resolver::default().resolve_program(program).unwrap();
+    let ir = lower_program(resolved);
     let backend = Driver::new(
         X86_64::default(),
         path.parent().unwrap().join("out_pipeline.s"),

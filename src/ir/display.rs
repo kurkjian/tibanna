@@ -37,7 +37,7 @@ impl fmt::Display for Operation {
             Operation::Neq(a, b) => write!(f, "ne {}, {}", a, b),
 
             Operation::Call(name, args) => {
-                write!(f, "call {}(", name)?;
+                write!(f, "call {}(", name.name)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

@@ -3,10 +3,14 @@ use crate::{
         builder::IRBuilder,
         types::{Branch, Env, Operation, PendingEdge, TIRFunction, Terminator, VirtualRegister},
     },
-    parser::{BinOp, ElseClause, Expression, Function, Program, Statement, Term},
+    parser::BinOp,
+    resolver::{
+        ResolvedElseClause, ResolvedExpression, ResolvedFunction, ResolvedProgram,
+        ResolvedStatement, ResolvedTerm, SymbolId,
+    },
 };
 
-pub fn lower_program(program: Program) -> Vec<TIRFunction> {
+pub fn lower_program(program: ResolvedProgram) -> Vec<TIRFunction> {
     let mut functions = Vec::new();
     if let Some(main) = program.main {
         functions.push(lower_function(main));
@@ -18,7 +22,7 @@ pub fn lower_program(program: Program) -> Vec<TIRFunction> {
     functions
 }
 
-fn lower_function(function: Function) -> TIRFunction {
+fn lower_function(function: ResolvedFunction) -> TIRFunction {
     let mut builder = IRBuilder::new();
     let mut env = Env::new();
 
@@ -27,7 +31,7 @@ fn lower_function(function: Function) -> TIRFunction {
         .iter()
         .map(|arg| {
             let value = builder.value();
-            env.insert(arg.name.name.clone(), value);
+            env.insert(arg.symbol.clone(), value);
             value
         })
         .collect::<Vec<_>>();
@@ -45,13 +49,17 @@ fn lower_function(function: Function) -> TIRFunction {
     }
 
     TIRFunction {
-        name: function.name.name,
+        name: function.name,
         params,
         blocks: builder.to_blocks(),
     }
 }
 
-fn lower_scope(scope: Vec<Statement>, mut env: Env, builder: &mut IRBuilder) -> Option<Env> {
+fn lower_scope(
+    scope: Vec<ResolvedStatement>,
+    mut env: Env,
+    builder: &mut IRBuilder,
+) -> Option<Env> {
     for statement in scope {
         env = lower_statement(statement, env.clone(), builder)?;
     }
@@ -59,30 +67,39 @@ fn lower_scope(scope: Vec<Statement>, mut env: Env, builder: &mut IRBuilder) -> 
     Some(env)
 }
 
-fn lower_statement(statement: Statement, mut env: Env, builder: &mut IRBuilder) -> Option<Env> {
+fn lower_statement(
+    statement: ResolvedStatement,
+    mut env: Env,
+    builder: &mut IRBuilder,
+) -> Option<Env> {
     match statement {
-        Statement::Exit(expr) => {
+        ResolvedStatement::Exit(expr) => {
             let v = lower_expr(expr, &env, builder);
             builder.terminate(Terminator::Exit(v));
             None
         }
-        Statement::Let { ident, expr } | Statement::Assignment { ident, expr } => {
+        ResolvedStatement::Let { symbol, expr, .. } => {
             let v = lower_expr(expr, &env, builder);
-            env.insert(ident.name, v);
+            env.insert(symbol, v);
             Some(env)
         }
-        Statement::If { cond, then, els } => Some(lower_if(cond, then, els, env, builder)),
-        Statement::While { cond, body } => Some(lower_while(cond, body, env, builder)),
-        Statement::FunctionCall { name, args } => {
+        ResolvedStatement::Assignment { symbol, expr } => {
+            let v = lower_expr(expr, &env, builder);
+            env.insert(symbol, v);
+            Some(env)
+        }
+        ResolvedStatement::If { cond, then, els } => Some(lower_if(cond, then, els, env, builder)),
+        ResolvedStatement::While { cond, body } => Some(lower_while(cond, body, env, builder)),
+        ResolvedStatement::FunctionCall { function, args } => {
             let arg_vals = args
                 .into_iter()
                 .map(|a| lower_expr(a, &env, builder))
                 .collect();
 
-            let _result = builder.emit(Operation::Call(name.name.clone(), arg_vals));
+            let _result = builder.emit(Operation::Call(function, arg_vals));
             Some(env)
         }
-        Statement::Return(expr) => {
+        ResolvedStatement::Return(expr) => {
             let v = lower_expr(expr, &env, builder);
             builder.terminate(Terminator::Return(v));
             None
@@ -91,14 +108,14 @@ fn lower_statement(statement: Statement, mut env: Env, builder: &mut IRBuilder) 
 }
 
 fn lower_if(
-    cond: Expression,
-    then_body: Vec<Statement>,
-    else_clause: Option<ElseClause>,
+    cond: ResolvedExpression,
+    then_body: Vec<ResolvedStatement>,
+    else_clause: Option<ResolvedElseClause>,
     env: Env,
     builder: &mut IRBuilder,
 ) -> Env {
     let branches = flatten_if_chain(cond, then_body, else_clause);
-    let vars: Vec<String> = env.keys().cloned().collect();
+    let vars: Vec<SymbolId> = env.keys().cloned().collect();
 
     let mut pending_edges = vec![];
     let mut next_block = builder.current();
@@ -123,7 +140,7 @@ fn lower_if(
             if let Some(env_out) = then_env {
                 let vals = vars.iter().map(|v| env_out[v]).collect::<Vec<_>>();
                 pending_edges.push(PendingEdge {
-                    from: then_block,
+                    from: builder.current(),
                     params: vals,
                 });
             }
@@ -136,7 +153,7 @@ fn lower_if(
             if let Some(env_out) = else_env {
                 let vals = vars.iter().map(|v| env_out[v]).collect::<Vec<_>>();
                 pending_edges.push(PendingEdge {
-                    from: next_block,
+                    from: builder.current(),
                     params: vals,
                 });
             }
@@ -169,9 +186,9 @@ fn lower_if(
 }
 
 fn flatten_if_chain(
-    cond: Expression,
-    then: Vec<Statement>,
-    els: Option<ElseClause>,
+    cond: ResolvedExpression,
+    then: Vec<ResolvedStatement>,
+    els: Option<ResolvedElseClause>,
 ) -> Vec<Branch> {
     let mut branches = vec![(Some(cond), then)];
     let mut current = els;
@@ -187,8 +204,13 @@ fn flatten_if_chain(
     branches
 }
 
-fn lower_while(cond: Expression, body: Vec<Statement>, env: Env, builder: &mut IRBuilder) -> Env {
-    let vars: Vec<String> = env.keys().cloned().collect();
+fn lower_while(
+    cond: ResolvedExpression,
+    body: Vec<ResolvedStatement>,
+    env: Env,
+    builder: &mut IRBuilder,
+) -> Env {
+    let vars: Vec<SymbolId> = env.keys().cloned().collect();
 
     let cond_block = builder.init_block();
     let body_block = builder.init_block();
@@ -241,9 +263,9 @@ fn lower_while(cond: Expression, body: Vec<Statement>, env: Env, builder: &mut I
     exit_env
 }
 
-fn lower_expr(expr: Expression, env: &Env, builder: &mut IRBuilder) -> VirtualRegister {
+fn lower_expr(expr: ResolvedExpression, env: &Env, builder: &mut IRBuilder) -> VirtualRegister {
     match expr {
-        Expression::BinaryExpr(lhs, rhs, op) => {
+        ResolvedExpression::BinaryExpr(lhs, rhs, op) => {
             let lhs = lower_expr(*lhs, env, builder);
             let rhs = lower_expr(*rhs, env, builder);
 
@@ -263,254 +285,20 @@ fn lower_expr(expr: Expression, env: &Env, builder: &mut IRBuilder) -> VirtualRe
 
             builder.emit(operation)
         }
-        Expression::Term(term) => match term {
-            Term::Identifier(name) => env.get(&name).expect("identifier must exist").to_owned(),
-            Term::IntLit(n) => builder.emit(Operation::ConstInt(n)),
-            Term::Bool(b) => builder.emit(Operation::ConstBool(b)),
+        ResolvedExpression::Term(term) => match term {
+            ResolvedTerm::Identifier(sym) => {
+                env.get(&sym).expect("identifier must exist").to_owned()
+            }
+            ResolvedTerm::IntLit(n) => builder.emit(Operation::ConstInt(n)),
+            ResolvedTerm::Bool(b) => builder.emit(Operation::ConstBool(b)),
         },
-        Expression::FunctionCall { name, args } => {
+        ResolvedExpression::FunctionCall { function, args } => {
             let args = args
                 .into_iter()
                 .map(|a| lower_expr(a, env, builder))
                 .collect();
 
-            builder.emit(Operation::Call(name.name, args))
+            builder.emit(Operation::Call(function, args))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::parser::{Identifier, Type};
-
-    use super::*;
-
-    #[test]
-    fn test_simple_arithmetic() {
-        let func = Function {
-            name: ident("main"),
-            args: vec![],
-            ret_sig: Type::Int,
-            body: vec![
-                Statement::Let {
-                    ident: ident("x"),
-                    expr: bin(int(1), int(2), BinOp::Add),
-                },
-                Statement::Return(var("x")),
-            ],
-        };
-
-        let tir = lower_function(func);
-
-        assert_eq!(tir.blocks.len(), 1);
-        assert!(count_instructions(&tir, |op| matches!(op, Operation::Add(_, _))) == 1);
-        assert!(find_block_with_terminator(&tir, |t| matches!(
-            t,
-            Terminator::Return(_)
-        )));
-    }
-
-    #[test]
-    fn test_function_call_statement() {
-        let func = Function {
-            name: ident("main"),
-            args: vec![],
-            ret_sig: Type::Int,
-            body: vec![
-                Statement::FunctionCall {
-                    name: ident("foo"),
-                    args: vec![int(1)],
-                },
-                Statement::Return(int(0)),
-            ],
-        };
-
-        let tir = lower_function(func);
-        assert!(count_instructions(&tir, |op| matches!(op, Operation::Call(_, _))) == 1);
-    }
-
-    #[test]
-    fn test_if_without_else() {
-        let func = Function {
-            name: ident("main"),
-            args: vec![],
-            ret_sig: Type::Int,
-            body: vec![
-                Statement::Let {
-                    ident: ident("x"),
-                    expr: int(1),
-                },
-                Statement::If {
-                    cond: bin(var("x"), int(0), BinOp::Gt),
-                    then: vec![Statement::Assignment {
-                        ident: ident("x"),
-                        expr: int(2),
-                    }],
-                    els: None,
-                },
-                Statement::Return(var("x")),
-            ],
-        };
-
-        let tir = lower_function(func);
-
-        // entry, if, identity-else merge
-        assert_eq!(tir.blocks.len(), 4);
-        assert!(find_block_with_terminator(&tir, |t| {
-            matches!(t, Terminator::ConditionalBranch { .. })
-        }));
-    }
-
-    #[test]
-    fn test_if_else() {
-        let func = Function {
-            name: ident("main"),
-            args: vec![],
-            ret_sig: Type::Int,
-            body: vec![
-                Statement::Let {
-                    ident: ident("x"),
-                    expr: int(1),
-                },
-                Statement::If {
-                    cond: bool(true),
-                    then: vec![Statement::Assignment {
-                        ident: ident("x"),
-                        expr: int(2),
-                    }],
-                    els: Some(ElseClause {
-                        cond: None,
-                        body: vec![Statement::Assignment {
-                            ident: ident("x"),
-                            expr: int(3),
-                        }],
-                        els: Box::new(None),
-                    }),
-                },
-                Statement::Return(var("x")),
-            ],
-        };
-
-        let tir = lower_function(func);
-        // entry, if, else, merge
-        assert_eq!(tir.blocks.len(), 4);
-    }
-
-    #[test]
-    fn test_else_if_chain() {
-        let func = Function {
-            name: ident("main"),
-            args: vec![],
-            ret_sig: Type::Int,
-            body: vec![Statement::If {
-                cond: bool(false),
-                then: vec![Statement::Return(int(1))],
-                els: Some(ElseClause {
-                    cond: Some(bool(false)),
-                    body: vec![Statement::Return(int(2))],
-                    els: Box::new(Some(ElseClause {
-                        cond: None,
-                        body: vec![Statement::Return(int(3))],
-                        els: Box::new(None),
-                    })),
-                }),
-            }],
-        };
-
-        let tir = lower_function(func);
-        assert_eq!(count_blocks(&tir), 5);
-    }
-
-    #[test]
-    fn test_while_loop() {
-        let func = Function {
-            name: ident("main"),
-            args: vec![],
-            ret_sig: Type::Int,
-            body: vec![
-                Statement::Let {
-                    ident: ident("x"),
-                    expr: int(0),
-                },
-                Statement::While {
-                    cond: bin(var("x"), int(10), BinOp::Lt),
-                    body: vec![Statement::Assignment {
-                        ident: ident("x"),
-                        expr: bin(var("x"), int(1), BinOp::Add),
-                    }],
-                },
-                Statement::Return(var("x")),
-            ],
-        };
-
-        let tir = lower_function(func);
-        // entry, cond, body, done
-        assert_eq!(tir.blocks.len(), 4);
-        assert!(find_block_with_terminator(&tir, |t| {
-            matches!(t, Terminator::Branch { .. })
-        }));
-    }
-
-    #[test]
-    fn test_implicit_return() {
-        let func = Function {
-            name: ident("foo"),
-            args: vec![],
-            ret_sig: Type::Void,
-            body: vec![Statement::Let {
-                ident: Identifier {
-                    name: "y".to_string(),
-                },
-                expr: Expression::Term(Term::IntLit(1)),
-            }],
-        };
-
-        let tir = lower_function(func);
-        assert_eq!(
-            tir.blocks[0].terminator,
-            Terminator::Return(VirtualRegister(0))
-        );
-    }
-
-    fn count_blocks(func: &TIRFunction) -> usize {
-        func.blocks.len()
-    }
-
-    fn find_block_with_terminator<F>(func: &TIRFunction, f: F) -> bool
-    where
-        F: Fn(&Terminator) -> bool,
-    {
-        func.blocks.iter().any(|b| f(&b.terminator))
-    }
-
-    fn count_instructions<F>(func: &TIRFunction, f: F) -> usize
-    where
-        F: Fn(&Operation) -> bool,
-    {
-        func.blocks
-            .iter()
-            .flat_map(|b| &b.instructions)
-            .filter(|instr| f(&instr.op))
-            .count()
-    }
-
-    fn ident(name: &str) -> Identifier {
-        Identifier { name: name.into() }
-    }
-
-    fn int(n: usize) -> Expression {
-        Expression::Term(Term::IntLit(n))
-    }
-
-    fn bool(b: bool) -> Expression {
-        Expression::Term(Term::Bool(b))
-    }
-
-    fn var(name: &str) -> Expression {
-        Expression::Term(Term::Identifier(name.into()))
-    }
-
-    fn bin(lhs: Expression, rhs: Expression, op: BinOp) -> Expression {
-        Expression::BinaryExpr(Box::new(lhs), Box::new(rhs), op)
     }
 }

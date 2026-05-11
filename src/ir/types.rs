@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::parser::{Expression, Statement};
+use crate::resolver::{FunctionId, ResolvedExpression, ResolvedStatement, SymbolId};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
     // Consts
     ConstInt(usize),
@@ -21,10 +21,10 @@ pub enum Operation {
     And(VirtualRegister, VirtualRegister),
     Or(VirtualRegister, VirtualRegister),
 
-    Call(String, Vec<VirtualRegister>),
+    Call(FunctionId, Vec<VirtualRegister>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     pub dest: VirtualRegister,
     pub op: Operation,
@@ -36,7 +36,7 @@ pub struct VirtualRegister(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub usize);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TIRBlock {
     pub label: BlockId,
     pub params: Vec<VirtualRegister>,
@@ -51,7 +51,7 @@ pub struct TIRFunction {
     pub blocks: Vec<TIRBlock>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Terminator {
     Void,
     Exit(VirtualRegister),
@@ -69,8 +69,8 @@ pub enum Terminator {
     },
 }
 
-pub type Branch = (Option<Expression>, Vec<Statement>);
-pub type Env = HashMap<String, VirtualRegister>;
+pub type Branch = (Option<ResolvedExpression>, Vec<ResolvedStatement>);
+pub type Env = HashMap<SymbolId, VirtualRegister>;
 
 pub struct PendingEdge {
     pub from: BlockId,
