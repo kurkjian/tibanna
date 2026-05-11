@@ -6,3 +6,4 @@ pub mod compile;
 pub mod ir;
 pub mod lexer;
 pub mod parser;
+pub mod resolver;
