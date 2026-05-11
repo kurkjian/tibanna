@@ -6,6 +6,11 @@ use crate::{
     ir::types::{TIRFunction, VirtualRegister},
 };
 
+pub struct Allocation {
+    pub allocations: HashMap<VirtualRegister, usize>,
+    pub spilled: Vec<VirtualRegister>,
+}
+
 pub fn create_interference_graph(
     function: &TIRFunction,
     liveness: Liveness,
@@ -44,10 +49,7 @@ pub fn create_interference_graph(
     graph
 }
 
-pub fn allocate_registers(
-    graph: Graph<VirtualRegister>,
-    num_registers: usize,
-) -> (HashMap<VirtualRegister, usize>, Vec<VirtualRegister>) {
+pub fn allocate_registers(graph: Graph<VirtualRegister>, num_registers: usize) -> Allocation {
     let mut allocations = HashMap::new();
     let mut spilled = Vec::new();
     let mut stack = Vec::with_capacity(graph.len());
@@ -100,7 +102,10 @@ pub fn allocate_registers(
         }
     }
 
-    (allocations, spilled)
+    Allocation {
+        allocations,
+        spilled,
+    }
 }
 
 #[cfg(test)]
@@ -133,8 +138,8 @@ mod tests {
         g.add_vertex(VirtualRegister(1));
 
         let alloc = allocate_registers(g, 2);
-        assert_eq!(alloc.0.len(), 1);
-        assert!(alloc.0.contains_key(&VirtualRegister(1)));
+        assert_eq!(alloc.allocations.len(), 1);
+        assert!(alloc.allocations.contains_key(&VirtualRegister(1)));
     }
 
     #[test]
@@ -145,8 +150,8 @@ mod tests {
         g.add_edge(VirtualRegister(2), VirtualRegister(3));
 
         let alloc = allocate_registers(g.clone(), 2);
-        assert_eq!(alloc.0.len(), 4);
-        assert_valid_coloring(&g, &alloc.0, 2);
+        assert_eq!(alloc.allocations.len(), 4);
+        assert_valid_coloring(&g, &alloc.allocations, 2);
     }
 
     #[test]
@@ -158,8 +163,8 @@ mod tests {
 
         let alloc = allocate_registers(g.clone(), 2);
 
-        assert_eq!(alloc.1.len(), 2);
-        assert_valid_coloring(&g, &alloc.0, 2);
+        assert_eq!(alloc.spilled.len(), 2);
+        assert_valid_coloring(&g, &alloc.allocations, 2);
     }
 
     #[test]
@@ -171,6 +176,6 @@ mod tests {
         }
 
         let alloc = allocate_registers(g, 2);
-        assert_eq!(alloc.0.len(), 10);
+        assert_eq!(alloc.allocations.len(), 10);
     }
 }
