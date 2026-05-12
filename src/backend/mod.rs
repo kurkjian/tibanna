@@ -1,3 +1,4 @@
+pub mod coalesce;
 pub mod constant;
 pub mod dce;
 pub mod driver;
