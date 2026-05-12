@@ -2,10 +2,12 @@ use std::{fs::File, io::Write, path::PathBuf};
 
 use crate::{
     backend::{
-        coalesce::coalesce_registers,
-        liveness::liveness,
+        allocator::{
+            coalesce::coalesce_registers,
+            graph_color::{allocate_registers, create_interference_graph},
+            liveness::liveness,
+        },
         pass::OptimizationPass,
-        regalloc::{allocate_registers, create_interference_graph},
         target::Target,
     },
     ir::types::TIRFunction,

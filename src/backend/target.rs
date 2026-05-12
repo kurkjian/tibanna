@@ -1,5 +1,5 @@
 use crate::{
-    backend::regalloc::Allocation,
+    backend::allocator::Allocation,
     common::uf::UnionFind,
     ir::types::{TIRFunction, VirtualRegister},
 };

@@ -1,16 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    backend::liveness::Liveness,
+    backend::allocator::{Allocation, liveness::Liveness},
     common::{graph::Graph, uf::UnionFind},
     ir::types::{TIRFunction, VirtualRegister},
 };
-
-#[derive(Debug)]
-pub struct Allocation {
-    pub allocations: HashMap<VirtualRegister, usize>,
-    pub spilled: Vec<VirtualRegister>,
-}
 
 pub fn create_interference_graph(
     function: &TIRFunction,
@@ -134,7 +128,7 @@ pub fn allocate_registers(graph: Graph<VirtualRegister>, num_registers: usize) -
 #[cfg(test)]
 mod tests {
     use crate::{
-        backend::{coalesce::coalesce_registers, liveness::liveness},
+        backend::allocator::{coalesce::coalesce_registers, liveness::liveness},
         ir::types::{BlockId, Instruction, Operation, TIRBlock, Terminator},
     };
 

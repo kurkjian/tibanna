@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    backend::{regalloc::Allocation, target::Target},
+    backend::{allocator::Allocation, target::Target},
     common::uf::UnionFind,
     ir::{
         self,
