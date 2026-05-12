@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     backend::liveness::Liveness,
-    common::graph::Graph,
+    common::{graph::Graph, uf::UnionFind},
     ir::types::{TIRFunction, VirtualRegister},
 };
 
+#[derive(Debug)]
 pub struct Allocation {
     pub allocations: HashMap<VirtualRegister, usize>,
     pub spilled: Vec<VirtualRegister>,
@@ -14,6 +15,7 @@ pub struct Allocation {
 pub fn create_interference_graph(
     function: &TIRFunction,
     liveness: Liveness,
+    uf: &mut UnionFind<VirtualRegister>,
 ) -> Graph<VirtualRegister> {
     let mut graph = Graph::new();
 
@@ -23,24 +25,46 @@ pub fn create_interference_graph(
             .get(&block.label)
             .expect("Block liveness must exist");
         for p in &block.params {
-            graph.add_vertex(*p);
+            let p = uf.canonical(*p);
+            graph.add_vertex(p);
             for v in &live.live_in {
-                graph.add_edge(*p, *v);
+                let v = uf.canonical(*v);
+                graph.add_edge(p, v);
             }
         }
 
         let mut live_out = live.live_out.clone();
+
+        // TODO: add a test for this
+        let term_uses = block.terminator.uses();
+        for v in &term_uses {
+            let v = uf.canonical(*v);
+            live_out.insert(v);
+            for v2 in &term_uses {
+                let v2 = uf.canonical(*v2);
+                graph.add_edge(v, v2);
+            }
+        }
+
         for instr in block.instructions.iter().rev() {
-            graph.add_vertex(instr.dest);
+            let dest = uf.canonical(instr.dest);
+            graph.add_vertex(dest);
             for v in &live_out {
-                graph.add_edge(*v, instr.dest);
+                let v = uf.canonical(*v);
+                graph.add_edge(v, dest);
+            }
+
+            for v in instr.uses() {
+                let v = uf.canonical(v);
+                graph.add_edge(v, dest);
             }
 
             // We just def'ed the vreg; since we are going backwards, that value
             // is no longer live. We need the operands to be considered live as
             // we go back though
-            live_out.remove(&instr.dest);
+            live_out.remove(&dest);
             for v in instr.uses() {
+                let v = uf.canonical(v);
                 live_out.insert(v);
             }
         }
@@ -51,7 +75,7 @@ pub fn create_interference_graph(
 
 pub fn allocate_registers(graph: Graph<VirtualRegister>, num_registers: usize) -> Allocation {
     let mut allocations = HashMap::new();
-    let mut spilled = Vec::new();
+    let mut spilled = HashSet::new();
     let mut stack = Vec::with_capacity(graph.len());
 
     let mut work_graph = graph.clone();
@@ -74,7 +98,7 @@ pub fn allocate_registers(graph: Graph<VirtualRegister>, num_registers: usize) -
                     .unwrap();
 
                 work_graph.remove_vertex(&max);
-                spilled.push(max);
+                spilled.insert(max);
                 stack.push(max);
             }
         }
@@ -97,14 +121,14 @@ pub fn allocate_registers(graph: Graph<VirtualRegister>, num_registers: usize) -
                 allocations.insert(v, color);
             }
             None => {
-                spilled.push(v);
+                spilled.insert(v);
             }
         }
     }
 
     Allocation {
         allocations,
-        spilled,
+        spilled: spilled.into_iter().collect(),
     }
 }
 
@@ -163,7 +187,7 @@ mod tests {
 
         let alloc = allocate_registers(g.clone(), 2);
 
-        assert_eq!(alloc.spilled.len(), 2);
+        assert_eq!(alloc.spilled.len(), 1);
         assert_valid_coloring(&g, &alloc.allocations, 2);
     }
 

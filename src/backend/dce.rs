@@ -14,10 +14,15 @@ impl OptimizationPass for DeadCodeElimination {
     fn run(&mut self, function: &mut TIRFunction) -> bool {
         let mut changed = false;
         let passthrough_blocks = find_passthrough_blocks(function);
-        function.blocks.retain_mut(|block| {
-            replace_target(block, &passthrough_blocks, &mut changed);
-            !passthrough_blocks.contains_key(&block.label)
-        });
+        for p in &passthrough_blocks {
+            for block in &mut function.blocks {
+                replace_target(block, p, &mut changed);
+            }
+        }
+
+        function
+            .blocks
+            .retain_mut(|block| !passthrough_blocks.contains_key(&block.label));
 
         let used_registers = find_used_registers(function);
         for block in &mut function.blocks {
@@ -32,6 +37,8 @@ impl OptimizationPass for DeadCodeElimination {
     }
 }
 
+// FIXME: This is only returning one node per iteration right now. This
+// needs to be fixed to support transitive passthroughs in `run`
 fn find_passthrough_blocks(function: &TIRFunction) -> HashMap<BlockId, BlockId> {
     let mut passthrough = HashMap::new();
     for block in &function.blocks {
@@ -39,6 +46,7 @@ fn find_passthrough_blocks(function: &TIRFunction) -> HashMap<BlockId, BlockId> 
             && let Some(target) = br_target(&block.terminator)
         {
             passthrough.insert(block.label, target);
+            return passthrough;
         }
     }
 
@@ -52,28 +60,23 @@ fn br_target(terminator: &Terminator) -> Option<BlockId> {
     }
 }
 
-fn replace_target(
-    block: &mut TIRBlock,
-    passthrough: &HashMap<BlockId, BlockId>,
-    changed: &mut bool,
-) {
+fn replace_target(block: &mut TIRBlock, passthrough: (&BlockId, &BlockId), changed: &mut bool) {
+    let (source, dest) = passthrough;
     match &mut block.terminator {
-        Terminator::Branch { target, .. } => {
-            if let Some(dest) = passthrough.get(target) {
-                *target = *dest;
-                *changed = true;
-            }
+        Terminator::Branch { target, .. } if target == source => {
+            *target = *dest;
+            *changed = true;
         }
         Terminator::ConditionalBranch {
             then_target,
             else_target,
             ..
         } => {
-            if let Some(dest) = passthrough.get(then_target) {
+            if then_target == source {
                 *then_target = *dest;
                 *changed = true;
             }
-            if let Some(dest) = passthrough.get(else_target) {
+            if else_target == source {
                 *else_target = *dest;
                 *changed = true;
             }
@@ -146,7 +149,10 @@ fn unremovable(instr: &Instruction) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::ir::types::{BlockId, TIRBlock};
+    use crate::{
+        ir::types::{BlockId, TIRBlock},
+        resolver::FunctionId,
+    };
 
     use super::*;
 
@@ -249,7 +255,13 @@ mod tests {
                 0,
                 vec![Instruction {
                     dest: VirtualRegister(1),
-                    op: Operation::Call("foo".into(), vec![]),
+                    op: Operation::Call(
+                        FunctionId {
+                            name: "foo".into(),
+                            id: 0,
+                        },
+                        vec![],
+                    ),
                 }],
                 Terminator::Void,
             )],
@@ -356,6 +368,9 @@ mod tests {
         pass.run(&mut func);
         assert_eq!(func.blocks.len(), 3);
     }
+
+    // TODO: test for passthrough chain in one iteration
+    // PASSTHROUGH: {BlockId(3): BlockId(5), BlockId(5): BlockId(6)}
 
     fn block(id: usize, instructions: Vec<Instruction>, terminator: Terminator) -> TIRBlock {
         TIRBlock {

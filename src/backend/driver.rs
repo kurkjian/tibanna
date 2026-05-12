@@ -2,6 +2,7 @@ use std::{fs::File, io::Write, path::PathBuf};
 
 use crate::{
     backend::{
+        coalesce::coalesce_registers,
         liveness::liveness,
         pass::OptimizationPass,
         regalloc::{allocate_registers, create_interference_graph},
@@ -31,6 +32,10 @@ impl<T: Target> Driver<T> {
     }
 
     pub fn run(mut self, functions: Vec<TIRFunction>) {
+        if functions[0].name != "main" {
+            todo!("Support lib files that don't have a main function");
+        }
+
         let mut asm_file = File::create(&self.path).expect("Could not create file");
         self.target.asm_header();
 
@@ -46,10 +51,10 @@ impl<T: Target> Driver<T> {
             }
 
             let liveness = liveness(&function);
-            let interference_graph = create_interference_graph(&function, liveness); // FIXME: this should probably just be done in allocate_registers()
+            let mut uf = coalesce_registers(&function);
+            let interference_graph = create_interference_graph(&function, liveness, &mut uf); // FIXME: this should probably just be done in allocate_registers()
             let alloc = allocate_registers(interference_graph, self.target.num_gp_registers());
-
-            self.target.emit(function, alloc);
+            self.target.emit(function, alloc, &mut uf);
         }
 
         let asm = self.target.asm();
