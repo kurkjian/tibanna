@@ -14,15 +14,10 @@ impl OptimizationPass for DeadCodeElimination {
     fn run(&mut self, function: &mut TIRFunction) -> bool {
         let mut changed = false;
         let passthrough_blocks = find_passthrough_blocks(function);
-        for p in &passthrough_blocks {
-            for block in &mut function.blocks {
-                replace_target(block, p, &mut changed);
-            }
-        }
-
-        function
-            .blocks
-            .retain_mut(|block| !passthrough_blocks.contains_key(&block.label));
+        function.blocks.retain_mut(|block| {
+            replace_target(block, &passthrough_blocks, &mut changed);
+            !passthrough_blocks.contains_key(&block.label)
+        });
 
         let used_registers = find_used_registers(function);
         for block in &mut function.blocks {
@@ -37,8 +32,18 @@ impl OptimizationPass for DeadCodeElimination {
     }
 }
 
-// FIXME: This is only returning one node per iteration right now. This
-// needs to be fixed to support transitive passthroughs in `run`
+fn resolve_passthrough(mut target: BlockId, passthrough: &HashMap<BlockId, BlockId>) -> BlockId {
+    while let Some(next) = passthrough.get(&target) {
+        if *next == target {
+            break;
+        }
+
+        target = *next;
+    }
+
+    target
+}
+
 fn find_passthrough_blocks(function: &TIRFunction) -> HashMap<BlockId, BlockId> {
     let mut passthrough = HashMap::new();
     for block in &function.blocks {
@@ -46,7 +51,6 @@ fn find_passthrough_blocks(function: &TIRFunction) -> HashMap<BlockId, BlockId> 
             && let Some(target) = br_target(&block.terminator)
         {
             passthrough.insert(block.label, target);
-            return passthrough;
         }
     }
 
@@ -60,24 +64,29 @@ fn br_target(terminator: &Terminator) -> Option<BlockId> {
     }
 }
 
-fn replace_target(block: &mut TIRBlock, passthrough: (&BlockId, &BlockId), changed: &mut bool) {
-    let (source, dest) = passthrough;
+fn replace_target(
+    block: &mut TIRBlock,
+    passthrough: &HashMap<BlockId, BlockId>,
+    changed: &mut bool,
+) {
     match &mut block.terminator {
-        Terminator::Branch { target, .. } if target == source => {
-            *target = *dest;
-            *changed = true;
+        Terminator::Branch { target, .. } => {
+            if let Some(dest) = passthrough.get(target) {
+                *target = resolve_passthrough(*dest, passthrough);
+                *changed = true;
+            }
         }
         Terminator::ConditionalBranch {
             then_target,
             else_target,
             ..
         } => {
-            if then_target == source {
-                *then_target = *dest;
+            if let Some(dest) = passthrough.get(then_target) {
+                *then_target = resolve_passthrough(*dest, passthrough);
                 *changed = true;
             }
-            if else_target == source {
-                *else_target = *dest;
+            if let Some(dest) = passthrough.get(else_target) {
+                *else_target = resolve_passthrough(*dest, passthrough);
                 *changed = true;
             }
         }
@@ -369,8 +378,57 @@ mod tests {
         assert_eq!(func.blocks.len(), 3);
     }
 
-    // TODO: test for passthrough chain in one iteration
-    // PASSTHROUGH: {BlockId(3): BlockId(5), BlockId(5): BlockId(6)}
+    #[test]
+    fn test_remove_chained_dead_blocks() {
+        let mut func = TIRFunction {
+            name: "test".into(),
+            params: vec![],
+            blocks: vec![
+                block(
+                    0,
+                    vec![Instruction {
+                        dest: VirtualRegister(0),
+                        op: Operation::ConstInt(1),
+                    }],
+                    Terminator::Branch {
+                        target: BlockId(1),
+                        params: vec![],
+                    },
+                ),
+                block(
+                    1,
+                    vec![],
+                    Terminator::Branch {
+                        target: BlockId(2),
+                        params: vec![],
+                    },
+                ),
+                block(
+                    2,
+                    vec![],
+                    Terminator::Branch {
+                        target: BlockId(3),
+                        params: vec![],
+                    },
+                ),
+                block(3, vec![], Terminator::Return(VirtualRegister(4))),
+            ],
+        };
+
+        let mut pass = DeadCodeElimination;
+        pass.run(&mut func);
+        assert_eq!(
+            func.blocks[0],
+            block(
+                0,
+                vec![],
+                Terminator::Branch {
+                    target: BlockId(3),
+                    params: vec![],
+                }
+            )
+        );
+    }
 
     fn block(id: usize, instructions: Vec<Instruction>, terminator: Terminator) -> TIRBlock {
         TIRBlock {
