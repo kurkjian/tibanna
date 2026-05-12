@@ -35,7 +35,6 @@ pub fn create_interference_graph(
 
         let mut live_out = live.live_out.clone();
 
-        // TODO: add a test for this
         let term_uses = block.terminator.uses();
         for v in &term_uses {
             let v = uf.canonical(*v);
@@ -134,6 +133,11 @@ pub fn allocate_registers(graph: Graph<VirtualRegister>, num_registers: usize) -
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        backend::{coalesce::coalesce_registers, liveness::liveness},
+        ir::types::{BlockId, Instruction, Operation, TIRBlock, Terminator},
+    };
+
     use super::*;
 
     fn assert_valid_coloring(
@@ -201,5 +205,61 @@ mod tests {
 
         let alloc = allocate_registers(g, 2);
         assert_eq!(alloc.allocations.len(), 10);
+    }
+
+    #[test]
+    fn test_terminator_interference() {
+        let f = TIRFunction {
+            name: "test".to_string(),
+            params: vec![],
+            blocks: vec![
+                TIRBlock {
+                    label: BlockId(0),
+                    params: vec![],
+                    instructions: vec![
+                        Instruction {
+                            dest: VirtualRegister(0),
+                            op: Operation::ConstInt(1),
+                        },
+                        Instruction {
+                            dest: VirtualRegister(1),
+                            op: Operation::ConstInt(2),
+                        },
+                        Instruction {
+                            dest: VirtualRegister(2),
+                            op: Operation::ConstInt(3),
+                        },
+                    ],
+                    terminator: Terminator::ConditionalBranch {
+                        cond: VirtualRegister(0),
+                        then_target: BlockId(1),
+                        then_params: vec![VirtualRegister(1)],
+                        else_target: BlockId(2),
+                        else_params: vec![VirtualRegister(2)],
+                    },
+                },
+                TIRBlock {
+                    label: BlockId(1),
+                    params: vec![VirtualRegister(3)],
+                    instructions: vec![],
+                    terminator: Terminator::Return(VirtualRegister(1)),
+                },
+                TIRBlock {
+                    label: BlockId(2),
+                    params: vec![VirtualRegister(4)],
+                    instructions: vec![],
+                    terminator: Terminator::Return(VirtualRegister(2)),
+                },
+            ],
+        };
+
+        let l = liveness(&f);
+        let mut uf = coalesce_registers(&f);
+        let g = create_interference_graph(&f, l, &mut uf);
+
+        assert_eq!(
+            g.edges(&VirtualRegister(0)).unwrap(),
+            &HashSet::from([VirtualRegister(1), VirtualRegister(2)])
+        );
     }
 }
