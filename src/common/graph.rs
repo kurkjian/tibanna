@@ -19,6 +19,9 @@ impl<T: Eq + Hash + Clone> Graph<T> {
     }
 
     pub fn add_edge(&mut self, vertex1: T, vertex2: T) {
+        if vertex1 == vertex2 {
+            return;
+        }
         self.g
             .entry(vertex1.clone())
             .or_insert_with(|| HashSet::new())
