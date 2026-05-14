@@ -1,12 +1,8 @@
 #![allow(dead_code)]
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-};
+use std::{collections::HashMap, fmt};
 
 use crate::{
-    backend::{allocator::Allocation, target::Target},
-    common::uf::UnionFind,
+    backend::{allocator::Allocator, target::Target},
     ir::{
         self,
         types::{BlockId, Operation, TIRBlock, TIRFunction, Terminator, VirtualRegister},
@@ -18,7 +14,7 @@ const WORD_SIZE: usize = 8;
 
 struct RegisterMap {
     /// virtual register -> physical register id
-    allocated: HashMap<VirtualRegister, usize>,
+    allocator: Allocator,
     /// virtual register -> spilled offset from rbp
     spilled: HashMap<VirtualRegister, usize>,
 }
@@ -271,13 +267,11 @@ impl X86_64 {
     fn find_or_spill(
         &mut self,
         vr: VirtualRegister,
-        alloc: &RegisterMap,
-        uf: &mut UnionFind<VirtualRegister>,
+        alloc: &mut RegisterMap,
         scratch: Reg,
     ) -> (Reg, bool) {
-        let rep = uf.canonical(vr);
-        if let Some(reg) = alloc.allocated.get(&rep) {
-            (Reg::from(*reg), false)
+        if let Some(reg) = alloc.allocator.location(vr) {
+            (Reg::from(reg), false)
         } else {
             self.instructions.push(Instruction::Push(scratch));
             let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
@@ -310,9 +304,9 @@ impl X86_64 {
         }
     }
 
-    fn store_dst(&mut self, dst: Option<&usize>, value: Arg64) {
+    fn store_dst(&mut self, dst: Option<usize>, value: Arg64) {
         let mov = if let Some(reg) = dst {
-            MovArgs::ToReg(Reg::from(*reg), value)
+            MovArgs::ToReg(Reg::from(reg), value)
         } else {
             let mem = MemRef {
                 reg: Reg::Rbp,
@@ -325,16 +319,11 @@ impl X86_64 {
     }
 
     fn save_caller_regs(&mut self, alloc: &RegisterMap) {
-        let mut used = alloc
-            .allocated
-            .values()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut used = alloc.allocator.used();
         used.sort();
 
         for reg in used {
-            let r = Reg::from(*reg);
+            let r = Reg::from(reg);
             if CALLER_SAVED.contains(&r) {
                 self.instructions.push(Instruction::Push(r));
             }
@@ -342,16 +331,11 @@ impl X86_64 {
     }
 
     fn pop_caller_regs(&mut self, alloc: &RegisterMap) {
-        let mut used = alloc
-            .allocated
-            .values()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut used = alloc.allocator.used();
         used.sort();
 
         for reg in used.iter().rev() {
-            let r = Reg::from(**reg);
+            let r = Reg::from(*reg);
             if CALLER_SAVED.contains(&r) {
                 self.instructions.push(Instruction::Pop(r));
             }
@@ -360,15 +344,14 @@ impl X86_64 {
 
     fn emit_binop(
         &mut self,
-        dst: Option<&usize>,
+        dst: Option<usize>,
         vr1: VirtualRegister,
         vr2: VirtualRegister,
-        alloc: &RegisterMap,
-        uf: &mut UnionFind<VirtualRegister>,
+        alloc: &mut RegisterMap,
         op: fn(BinArgs) -> Instruction,
     ) {
-        let (r1, spill1) = self.find_or_spill(vr1, alloc, uf, Reg::Rax);
-        let (r2, spill2) = self.find_or_spill(vr2, alloc, uf, Reg::R8);
+        let (r1, spill1) = self.find_or_spill(vr1, alloc, Reg::Rax);
+        let (r2, spill2) = self.find_or_spill(vr2, alloc, Reg::R8);
 
         self.instructions
             .push(op(BinArgs::ToReg(r1, Arg64::Reg(r2))));
@@ -383,13 +366,12 @@ impl X86_64 {
         vr1: VirtualRegister,
         vr2: VirtualRegister,
         dst: VirtualRegister,
-        alloc: &RegisterMap,
-        uf: &mut UnionFind<VirtualRegister>,
+        alloc: &mut RegisterMap,
         cc: CC,
     ) {
-        let (r1, spill1) = self.find_or_spill(vr1, alloc, uf, Reg::Rax);
-        let (r2, spill2) = self.find_or_spill(vr2, alloc, uf, Reg::R8);
-        let (dest, spill3) = self.find_or_spill(dst, alloc, uf, Reg::R9);
+        let (r1, spill1) = self.find_or_spill(vr1, alloc, Reg::Rax);
+        let (r2, spill2) = self.find_or_spill(vr2, alloc, Reg::R8);
+        let (dest, spill3) = self.find_or_spill(dst, alloc, Reg::R9);
         self.instructions
             .push(Instruction::Xor(BinArgs::ToReg(dest, Arg64::Reg(dest))));
         self.instructions
@@ -400,14 +382,8 @@ impl X86_64 {
         self.restore_if_spilled(Reg::Rax, spill1, alloc, vr1);
     }
 
-    fn translate_ir(
-        &mut self,
-        instr: ir::types::Instruction,
-        alloc: &RegisterMap,
-        uf: &mut UnionFind<VirtualRegister>,
-    ) {
-        let rep = uf.canonical(instr.dest);
-        let dst = alloc.allocated.get(&rep);
+    fn translate_ir(&mut self, instr: ir::types::Instruction, alloc: &mut RegisterMap) {
+        let dst = alloc.allocator.location(instr.dest);
         match instr.op {
             Operation::ConstInt(n) => {
                 self.store_dst(dst, Arg64::Unsigned(n));
@@ -416,37 +392,37 @@ impl X86_64 {
                 self.store_dst(dst, Arg64::Unsigned(b as usize));
             }
             Operation::Add(vr1, vr2) => {
-                self.emit_binop(dst, vr1, vr2, alloc, uf, Instruction::Add);
+                self.emit_binop(dst, vr1, vr2, alloc, Instruction::Add);
             }
             Operation::Sub(vr1, vr2) => {
-                self.emit_binop(dst, vr1, vr2, alloc, uf, Instruction::Sub);
+                self.emit_binop(dst, vr1, vr2, alloc, Instruction::Sub);
             }
             Operation::Mul(vr1, vr2) => {
-                self.emit_binop(dst, vr1, vr2, alloc, uf, Instruction::Mul);
+                self.emit_binop(dst, vr1, vr2, alloc, Instruction::Mul);
             }
             Operation::And(vr1, vr2) => {
-                self.emit_binop(dst, vr1, vr2, alloc, uf, Instruction::And);
+                self.emit_binop(dst, vr1, vr2, alloc, Instruction::And);
             }
             Operation::Or(vr1, vr2) => {
-                self.emit_binop(dst, vr1, vr2, alloc, uf, Instruction::Or);
+                self.emit_binop(dst, vr1, vr2, alloc, Instruction::Or);
             }
             Operation::Eq(vr1, vr2) => {
-                self.emit_cmp(vr1, vr2, instr.dest, alloc, uf, CC::E);
+                self.emit_cmp(vr1, vr2, instr.dest, alloc, CC::E);
             }
             Operation::Lt(vr1, vr2) => {
-                self.emit_cmp(vr1, vr2, instr.dest, alloc, uf, CC::L);
+                self.emit_cmp(vr1, vr2, instr.dest, alloc, CC::L);
             }
             Operation::Leq(vr1, vr2) => {
-                self.emit_cmp(vr1, vr2, instr.dest, alloc, uf, CC::LE);
+                self.emit_cmp(vr1, vr2, instr.dest, alloc, CC::LE);
             }
             Operation::Gt(vr1, vr2) => {
-                self.emit_cmp(vr1, vr2, instr.dest, alloc, uf, CC::G);
+                self.emit_cmp(vr1, vr2, instr.dest, alloc, CC::G);
             }
             Operation::Geq(vr1, vr2) => {
-                self.emit_cmp(vr1, vr2, instr.dest, alloc, uf, CC::GE);
+                self.emit_cmp(vr1, vr2, instr.dest, alloc, CC::GE);
             }
             Operation::Neq(vr1, vr2) => {
-                self.emit_cmp(vr1, vr2, instr.dest, alloc, uf, CC::NE);
+                self.emit_cmp(vr1, vr2, instr.dest, alloc, CC::NE);
             }
             Operation::Call(function, vrs) => {
                 if vrs.len() > 4 {
@@ -456,12 +432,11 @@ impl X86_64 {
 
                 let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
                 for (arg, reg) in vrs.into_iter().zip(arg_regs) {
-                    let rep = uf.canonical(arg);
-                    let loc = alloc.allocated.get(&rep);
+                    let loc = alloc.allocator.location(arg);
                     if let Some(loc) = loc {
                         self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                             reg,
-                            Arg64::Reg(Reg::from(*loc)),
+                            Arg64::Reg(Reg::from(loc)),
                         )));
                     } else {
                         let offset = alloc.spilled.get(&arg).expect("vr must have been spilled");
@@ -484,19 +459,17 @@ impl X86_64 {
         &mut self,
         function: &str,
         terminator: Terminator,
-        alloc: &RegisterMap,
-        uf: &mut UnionFind<VirtualRegister>,
+        alloc: &mut RegisterMap,
         blocks: &HashMap<BlockId, TIRBlock>,
     ) {
         match terminator {
             Terminator::Void => unreachable!("should not have a void block"),
             Terminator::Exit(vr) => {
-                let rep = uf.canonical(vr);
-                let reg = alloc.allocated.get(&rep);
+                let reg = alloc.allocator.location(vr);
                 if let Some(r) = reg {
                     self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                         Reg::Rdi,
-                        Arg64::Reg(Reg::from(*r)),
+                        Arg64::Reg(Reg::from(r)),
                     )));
                 } else {
                     let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
@@ -515,12 +488,11 @@ impl X86_64 {
                 self.instructions.push(Instruction::Syscall);
             }
             Terminator::Return(vr) => {
-                let rep = uf.canonical(vr);
-                let reg = alloc.allocated.get(&rep);
+                let reg = alloc.allocator.location(vr);
                 if let Some(r) = reg {
                     self.instructions.push(Instruction::Mov(MovArgs::ToReg(
                         Reg::R15,
-                        Arg64::Reg(Reg::from(*r)),
+                        Arg64::Reg(Reg::from(r)),
                     )));
                 } else {
                     let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
@@ -545,8 +517,8 @@ impl X86_64 {
                 for (param, arg) in params.iter().zip(t.params.iter()) {
                     // i dont think these spills matter because param/arg are
                     // actually the same value, just moved around?
-                    let (r1, _) = self.find_or_spill(*param, alloc, uf, Reg::Rax);
-                    let (r2, _) = self.find_or_spill(*arg, alloc, uf, Reg::Rax);
+                    let (r1, _) = self.find_or_spill(*param, alloc, Reg::Rax);
+                    let (r2, _) = self.find_or_spill(*arg, alloc, Reg::Rax);
                     self.instructions
                         .push(Instruction::Mov(MovArgs::ToReg(r2, Arg64::Reg(r1))));
                 }
@@ -567,8 +539,8 @@ impl X86_64 {
                 for (param, arg) in then_params.iter().zip(t.params.iter()) {
                     // i dont think these spills matter because param/arg are
                     // actually the same value, just moved around?
-                    let (r1, _) = self.find_or_spill(*param, alloc, uf, Reg::Rax);
-                    let (r2, _) = self.find_or_spill(*arg, alloc, uf, Reg::Rax);
+                    let (r1, _) = self.find_or_spill(*param, alloc, Reg::Rax);
+                    let (r2, _) = self.find_or_spill(*arg, alloc, Reg::Rax);
                     self.instructions
                         .push(Instruction::Mov(MovArgs::ToReg(r2, Arg64::Reg(r1))));
                 }
@@ -577,17 +549,16 @@ impl X86_64 {
                 for (param, arg) in else_params.iter().zip(t.params.iter()) {
                     // i dont think these spills matter because param/arg are
                     // actually the same value, just moved around?
-                    let (r1, _) = self.find_or_spill(*param, alloc, uf, Reg::Rax);
-                    let (r2, _) = self.find_or_spill(*arg, alloc, uf, Reg::Rax);
+                    let (r1, _) = self.find_or_spill(*param, alloc, Reg::Rax);
+                    let (r2, _) = self.find_or_spill(*arg, alloc, Reg::Rax);
                     self.instructions
                         .push(Instruction::Mov(MovArgs::ToReg(r2, Arg64::Reg(r1))));
                 }
 
-                let rep = uf.canonical(cond);
-                let r_cond = alloc.allocated.get(&rep);
+                let r_cond = alloc.allocator.location(cond);
                 if let Some(reg) = r_cond {
                     self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
-                        Reg::from(*reg),
+                        Reg::from(reg),
                         Arg64::Unsigned(0),
                     )));
                 } else {
@@ -622,20 +593,12 @@ impl Target for X86_64 {
         ]);
     }
 
-    fn emit(
-        &mut self,
-        function: TIRFunction,
-        alloc: Allocation,
-        uf: &mut UnionFind<VirtualRegister>,
-    ) {
-        let mut spilled = HashMap::with_capacity(alloc.spilled.len());
-        for (i, vr) in alloc.spilled.into_iter().enumerate() {
-            spilled.insert(vr, (i + 1) * WORD_SIZE);
+    fn emit(&mut self, function: TIRFunction, allocator: Allocator) {
+        let mut spilled = HashMap::with_capacity(allocator.spilled().len());
+        for (i, vr) in allocator.spilled().iter().enumerate() {
+            spilled.insert(*vr, (i + 1) * WORD_SIZE);
         }
-        let alloc = RegisterMap {
-            allocated: alloc.allocations,
-            spilled,
-        };
+        let mut alloc = RegisterMap { allocator, spilled };
 
         // TODO: callee/caller save registers
 
@@ -654,11 +617,10 @@ impl Target for X86_64 {
 
         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
         for (p, reg) in function.params.iter().zip(arg_regs) {
-            let rep = uf.canonical(*p);
-            let loc = alloc.allocated.get(&rep);
+            let loc = alloc.allocator.location(*p);
             if let Some(loc) = loc {
                 self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                    Reg::from(*loc),
+                    Reg::from(loc),
                     Arg64::Reg(reg),
                 )));
             } else {
@@ -683,10 +645,10 @@ impl Target for X86_64 {
             self.instructions.push(Instruction::Label(label));
 
             for instr in block.instructions {
-                self.translate_ir(instr, &alloc, uf);
+                self.translate_ir(instr, &mut alloc);
             }
 
-            self.translate_terminator(&function.name, block.terminator, &alloc, uf, &blocks);
+            self.translate_terminator(&function.name, block.terminator, &mut alloc, &blocks);
         }
 
         self.instructions.push(Instruction::Mov(MovArgs::ToReg(

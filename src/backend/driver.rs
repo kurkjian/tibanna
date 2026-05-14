@@ -1,15 +1,7 @@
 use std::{fs::File, io::Write, path::PathBuf};
 
 use crate::{
-    backend::{
-        allocator::{
-            coalesce::coalesce_registers,
-            graph_color::{allocate_registers, create_interference_graph},
-            liveness::liveness,
-        },
-        pass::OptimizationPass,
-        target::Target,
-    },
+    backend::{allocator::Allocator, pass::OptimizationPass, target::Target},
     ir::types::TIRFunction,
 };
 
@@ -52,11 +44,8 @@ impl<T: Target> Driver<T> {
                 }
             }
 
-            let liveness = liveness(&function);
-            let mut uf = coalesce_registers(&function);
-            let interference_graph = create_interference_graph(&function, liveness, &mut uf); // FIXME: this should probably just be done in allocate_registers()
-            let alloc = allocate_registers(interference_graph, self.target.num_gp_registers());
-            self.target.emit(function, alloc, &mut uf);
+            let allocator = Allocator::new(&function, self.target.num_gp_registers());
+            self.target.emit(function, allocator);
         }
 
         let asm = self.target.asm();
