@@ -2,7 +2,7 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
-    backend::{allocator::Allocator, target::Target},
+    backend::{allocator::Allocator, target::Target, targets::peephole::peephole},
     ir::{
         self,
         types::{BlockId, Operation, TIRBlock, TIRFunction, Terminator, VirtualRegister},
@@ -34,7 +34,7 @@ impl RegisterMap {
     }
 }
 
-enum CC {
+pub enum CC {
     E,
     NE,
     G,
@@ -56,7 +56,7 @@ impl fmt::Display for CC {
     }
 }
 
-enum Instruction {
+pub enum Instruction {
     Directive(String, String),
     Label(String),
     Syscall,
@@ -128,7 +128,7 @@ impl fmt::Display for Instruction {
     }
 }
 
-struct MemRef {
+pub struct MemRef {
     reg: Reg,
     offset: usize,
 }
@@ -139,7 +139,7 @@ impl fmt::Display for MemRef {
     }
 }
 
-enum Operand {
+pub enum Operand {
     Reg(Reg),
     Imm(usize),
     Mem(MemRef),
@@ -157,7 +157,7 @@ impl fmt::Display for Operand {
 
 #[derive(Debug, strum_macros::Display, Copy, Clone, PartialEq, Eq)]
 #[strum(serialize_all = "lowercase")]
-enum Reg {
+pub enum Reg {
     Rax,
     Rbx,
     Rcx,
@@ -574,6 +574,8 @@ impl Target for X86_64 {
         ));
         self.instructions.push(Instruction::Pop(Reg::Rbp));
         self.instructions.push(Instruction::Ret);
+
+        peephole(&mut self.instructions);
     }
 
     fn asm(self) -> String {
