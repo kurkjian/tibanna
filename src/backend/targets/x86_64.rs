@@ -19,6 +19,21 @@ struct RegisterMap {
     spilled: HashMap<VirtualRegister, usize>,
 }
 
+impl RegisterMap {
+    fn operand(&mut self, vr: VirtualRegister) -> Operand {
+        let loc = self.allocator.location(vr);
+        if let Some(reg) = loc {
+            Operand::Reg(Reg::from(reg))
+        } else {
+            let offset = self.spilled.get(&vr).expect("vr must have been spilled");
+            Operand::Mem(MemRef {
+                reg: Reg::Rbp,
+                offset: *offset,
+            })
+        }
+    }
+}
+
 enum CC {
     E,
     NE,
@@ -276,18 +291,9 @@ impl X86_64 {
         }
     }
 
-    fn store_dst(&mut self, dst: Option<usize>, value: Operand) {
-        let mov = if let Some(reg) = dst {
-            Instruction::Mov(Operand::Reg(Reg::from(reg)), value)
-        } else {
-            let mem = MemRef {
-                reg: Reg::Rbp,
-                offset: 0, // FIXME: Assign spills to a mem loc
-            };
-            Instruction::Mov(Operand::Mem(mem), value)
-        };
-
-        self.instructions.push(mov);
+    fn store_dst(&mut self, dst: VirtualRegister, value: Operand, alloc: &mut RegisterMap) {
+        let operand = alloc.operand(dst);
+        self.instructions.push(Instruction::Mov(operand, value));
     }
 
     fn save_caller_regs(&mut self, alloc: &RegisterMap) {
@@ -316,7 +322,7 @@ impl X86_64 {
 
     fn emit_binop(
         &mut self,
-        dst: Option<usize>,
+        dst: VirtualRegister,
         vr1: VirtualRegister,
         vr2: VirtualRegister,
         alloc: &mut RegisterMap,
@@ -328,7 +334,7 @@ impl X86_64 {
         self.instructions
             .push(op(Operand::Reg(r1), Operand::Reg(r2)));
 
-        self.store_dst(dst, Operand::Reg(r1));
+        self.store_dst(dst, Operand::Reg(r1), alloc);
         self.restore_if_spilled(Reg::R8, spill2, alloc, vr2);
         self.restore_if_spilled(Reg::Rax, spill1, alloc, vr1);
     }
@@ -355,13 +361,13 @@ impl X86_64 {
     }
 
     fn translate_ir(&mut self, instr: ir::types::Instruction, alloc: &mut RegisterMap) {
-        let dst = alloc.allocator.location(instr.dest);
+        let dst = instr.dest;
         match instr.op {
             Operation::ConstInt(n) => {
-                self.store_dst(dst, Operand::Imm(n));
+                self.store_dst(dst, Operand::Imm(n), alloc);
             }
             Operation::ConstBool(b) => {
-                self.store_dst(dst, Operand::Imm(b as usize));
+                self.store_dst(dst, Operand::Imm(b as usize), alloc);
             }
             Operation::Add(vr1, vr2) => {
                 self.emit_binop(dst, vr1, vr2, alloc, Instruction::Add);
@@ -404,25 +410,13 @@ impl X86_64 {
 
                 let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
                 for (arg, reg) in vrs.into_iter().zip(arg_regs) {
-                    let loc = alloc.allocator.location(arg);
-                    if let Some(loc) = loc {
-                        self.instructions.push(Instruction::Mov(
-                            Operand::Reg(reg),
-                            Operand::Reg(Reg::from(loc)),
-                        ));
-                    } else {
-                        let offset = alloc.spilled.get(&arg).expect("vr must have been spilled");
-                        let mem = MemRef {
-                            reg: Reg::Rbp,
-                            offset: *offset,
-                        };
-                        self.instructions
-                            .push(Instruction::Mov(Operand::Reg(reg), Operand::Mem(mem)));
-                    }
+                    let operand = alloc.operand(arg);
+                    self.instructions
+                        .push(Instruction::Mov(Operand::Reg(reg), operand));
                 }
                 self.instructions.push(Instruction::Call(function.name));
                 self.pop_caller_regs(alloc);
-                self.store_dst(dst, Operand::Reg(Reg::R15));
+                self.store_dst(dst, Operand::Reg(Reg::R15), alloc);
             }
         }
     }
@@ -437,21 +431,9 @@ impl X86_64 {
         match terminator {
             Terminator::Void => unreachable!("should not have a void block"),
             Terminator::Exit(vr) => {
-                let reg = alloc.allocator.location(vr);
-                if let Some(r) = reg {
-                    self.instructions.push(Instruction::Mov(
-                        Operand::Reg(Reg::Rdi),
-                        Operand::Reg(Reg::from(r)),
-                    ));
-                } else {
-                    let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
-                    let mem = MemRef {
-                        reg: Reg::Rbp,
-                        offset: *offset,
-                    };
-                    self.instructions
-                        .push(Instruction::Mov(Operand::Reg(Reg::Rdi), Operand::Mem(mem)));
-                }
+                let operand = alloc.operand(vr);
+                self.instructions
+                    .push(Instruction::Mov(Operand::Reg(Reg::Rdi), operand));
 
                 self.instructions.push(Instruction::Mov(
                     Operand::Reg(Reg::Rax),
@@ -460,21 +442,9 @@ impl X86_64 {
                 self.instructions.push(Instruction::Syscall);
             }
             Terminator::Return(vr) => {
-                let reg = alloc.allocator.location(vr);
-                if let Some(r) = reg {
-                    self.instructions.push(Instruction::Mov(
-                        Operand::Reg(Reg::R15),
-                        Operand::Reg(Reg::from(r)),
-                    ));
-                } else {
-                    let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
-                    let mem = MemRef {
-                        reg: Reg::Rbp,
-                        offset: *offset,
-                    };
-                    self.instructions
-                        .push(Instruction::Mov(Operand::Reg(Reg::R15), Operand::Mem(mem)));
-                }
+                let operand = alloc.operand(vr);
+                self.instructions
+                    .push(Instruction::Mov(Operand::Reg(Reg::R15), operand));
 
                 self.instructions.push(Instruction::Mov(
                     Operand::Reg(Reg::Rsp),
@@ -527,22 +497,9 @@ impl X86_64 {
                         .push(Instruction::Mov(Operand::Reg(r2), Operand::Reg(r1)));
                 }
 
-                let r_cond = alloc.allocator.location(cond);
-                if let Some(reg) = r_cond {
-                    self.instructions.push(Instruction::Cmp(
-                        Operand::Reg(Reg::from(reg)),
-                        Operand::Imm(0),
-                    ));
-                } else {
-                    let offset = alloc.spilled.get(&cond).expect("vr must have been spilled");
-                    let mem = MemRef {
-                        reg: Reg::Rbp,
-                        offset: *offset,
-                    };
-                    self.instructions
-                        .push(Instruction::Cmp(Operand::Mem(mem), Operand::Imm(0)));
-                }
-
+                let operand = alloc.operand(cond);
+                self.instructions
+                    .push(Instruction::Cmp(operand, Operand::Imm(0)));
                 self.instructions.push(Instruction::Jne(then_label));
                 self.instructions.push(Instruction::Jmp(else_label));
             }
@@ -589,21 +546,9 @@ impl Target for X86_64 {
 
         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
         for (p, reg) in function.params.iter().zip(arg_regs) {
-            let loc = alloc.allocator.location(*p);
-            if let Some(loc) = loc {
-                self.instructions.push(Instruction::Mov(
-                    Operand::Reg(Reg::from(loc)),
-                    Operand::Reg(reg),
-                ));
-            } else {
-                let offset = alloc.spilled.get(p).expect("vr must have been spilled");
-                let mem = MemRef {
-                    reg: Reg::Rbp,
-                    offset: *offset,
-                };
-                self.instructions
-                    .push(Instruction::Mov(Operand::Mem(mem), Operand::Reg(reg)));
-            }
+            let operand = alloc.operand(*p);
+            self.instructions
+                .push(Instruction::Mov(Operand::Reg(reg), operand));
         }
 
         let blocks = function
