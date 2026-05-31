@@ -48,16 +48,16 @@ enum Instruction {
 
     Push(Reg),
     Pop(Reg),
-    Mov(MovArgs),
+    Mov(Operand, Operand),
 
-    Add(BinArgs),
-    Sub(BinArgs),
-    Mul(BinArgs),
-    Cmp(BinArgs),
+    Add(Operand, Operand),
+    Sub(Operand, Operand),
+    Mul(Operand, Operand),
+    Cmp(Operand, Operand),
 
-    And(BinArgs),
-    Or(BinArgs),
-    Xor(BinArgs),
+    And(Operand, Operand),
+    Or(Operand, Operand),
+    Xor(Operand, Operand),
 
     Jz(String),
     Jnz(String),
@@ -89,11 +89,11 @@ impl fmt::Display for Instruction {
             Instruction::Syscall => write!(f, "    syscall"),
             Instruction::Push(reg) => write!(f, "    push {}", reg),
             Instruction::Pop(reg) => write!(f, "    pop {}", reg),
-            Instruction::Mov(mov) => write!(f, "    {}", mov),
-            Instruction::Add(args) => write!(f, "    add {}", args),
-            Instruction::Sub(args) => write!(f, "    sub {}", args),
-            Instruction::Mul(args) => write!(f, "    imul {}", args),
-            Instruction::Cmp(args) => write!(f, "    cmp {}", args),
+            Instruction::Mov(op1, op2) => write!(f, "    mov {}, {}", op1, op2),
+            Instruction::Add(op1, op2) => write!(f, "    add {}, {}", op1, op2),
+            Instruction::Sub(op1, op2) => write!(f, "    sub {}, {}", op1, op2),
+            Instruction::Mul(op1, op2) => write!(f, "    imul {}, {}", op1, op2),
+            Instruction::Cmp(op1, op2) => write!(f, "    cmp {}, {}", op1, op2),
             Instruction::Jz(label) => write!(f, "    jz {}", label),
             Instruction::Jnz(label) => write!(f, "    jnz {}", label),
             Instruction::Je(label) => write!(f, "    je {}", label),
@@ -104,9 +104,9 @@ impl fmt::Display for Instruction {
             Instruction::Jg(label) => write!(f, "    jg {}", label),
             Instruction::Jmp(label) => write!(f, "    jmp {}", label),
             Instruction::Set(cc, reg) => write!(f, "    set{} {}", cc, reg.low_byte()),
-            Instruction::And(args) => write!(f, "    and {}", args),
-            Instruction::Or(args) => write!(f, "    or {}", args),
-            Instruction::Xor(args) => write!(f, "    xor {}", args),
+            Instruction::And(op1, op2) => write!(f, "    and {}, {}", op1, op2),
+            Instruction::Or(op1, op2) => write!(f, "    or {}, {}", op1, op2),
+            Instruction::Xor(op1, op2) => write!(f, "    xor {}, {}", op1, op2),
             Instruction::Call(label) => write!(f, "    call {}", label),
             Instruction::Ret => write!(f, "    ret"),
         }
@@ -124,46 +124,18 @@ impl fmt::Display for MemRef {
     }
 }
 
-enum BinArgs {
-    ToReg(Reg, Arg64), //FIXME: i think this should actually be arg32
-    ToMem(MemRef, Arg64),
-}
-
-impl fmt::Display for BinArgs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BinArgs::ToReg(reg, arg) => write!(f, "{}, {}", reg, arg),
-            BinArgs::ToMem(mem, arg) => write!(f, "{}, {}", mem, arg),
-        }
-    }
-}
-
-enum MovArgs {
-    ToReg(Reg, Arg64),
-    ToMem(MemRef, Arg64), //FIXME: we can't mov [mem], [mem]; that needs to be invalid
-}
-
-impl fmt::Display for MovArgs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MovArgs::ToReg(reg, arg) => write!(f, "mov {}, {}", reg, arg),
-            MovArgs::ToMem(mem, arg) => write!(f, "mov {}, {}", mem, arg),
-        }
-    }
-}
-
-enum Arg64 {
+enum Operand {
     Reg(Reg),
-    Unsigned(usize),
+    Imm(usize),
     Mem(MemRef),
 }
 
-impl fmt::Display for Arg64 {
+impl fmt::Display for Operand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Arg64::Reg(reg) => write!(f, "{}", reg),
-            Arg64::Unsigned(val) => write!(f, "{}", val),
-            Arg64::Mem(mem) => write!(f, "{}", mem),
+            Operand::Reg(reg) => write!(f, "{}", reg),
+            Operand::Imm(val) => write!(f, "{}", val),
+            Operand::Mem(mem) => write!(f, "{}", mem),
         }
     }
 }
@@ -280,7 +252,7 @@ impl X86_64 {
                 offset: *offset,
             };
             self.instructions
-                .push(Instruction::Mov(MovArgs::ToReg(scratch, Arg64::Mem(mem))));
+                .push(Instruction::Mov(Operand::Reg(scratch), Operand::Mem(mem)));
             (scratch, true)
         }
     }
@@ -299,23 +271,23 @@ impl X86_64 {
                 offset: *offset,
             };
             self.instructions
-                .push(Instruction::Mov(MovArgs::ToMem(mem, Arg64::Reg(reg))));
+                .push(Instruction::Mov(Operand::Mem(mem), Operand::Reg(reg)));
             self.instructions.push(Instruction::Pop(reg));
         }
     }
 
-    fn store_dst(&mut self, dst: Option<usize>, value: Arg64) {
+    fn store_dst(&mut self, dst: Option<usize>, value: Operand) {
         let mov = if let Some(reg) = dst {
-            MovArgs::ToReg(Reg::from(reg), value)
+            Instruction::Mov(Operand::Reg(Reg::from(reg)), value)
         } else {
             let mem = MemRef {
                 reg: Reg::Rbp,
                 offset: 0, // FIXME: Assign spills to a mem loc
             };
-            MovArgs::ToMem(mem, value)
+            Instruction::Mov(Operand::Mem(mem), value)
         };
 
-        self.instructions.push(Instruction::Mov(mov));
+        self.instructions.push(mov);
     }
 
     fn save_caller_regs(&mut self, alloc: &RegisterMap) {
@@ -348,15 +320,15 @@ impl X86_64 {
         vr1: VirtualRegister,
         vr2: VirtualRegister,
         alloc: &mut RegisterMap,
-        op: fn(BinArgs) -> Instruction,
+        op: fn(Operand, Operand) -> Instruction,
     ) {
         let (r1, spill1) = self.find_or_spill(vr1, alloc, Reg::Rax);
         let (r2, spill2) = self.find_or_spill(vr2, alloc, Reg::R8);
 
         self.instructions
-            .push(op(BinArgs::ToReg(r1, Arg64::Reg(r2))));
+            .push(op(Operand::Reg(r1), Operand::Reg(r2)));
 
-        self.store_dst(dst, Arg64::Reg(r1));
+        self.store_dst(dst, Operand::Reg(r1));
         self.restore_if_spilled(Reg::R8, spill2, alloc, vr2);
         self.restore_if_spilled(Reg::Rax, spill1, alloc, vr1);
     }
@@ -373,9 +345,9 @@ impl X86_64 {
         let (r2, spill2) = self.find_or_spill(vr2, alloc, Reg::R8);
         let (dest, spill3) = self.find_or_spill(dst, alloc, Reg::R9);
         self.instructions
-            .push(Instruction::Xor(BinArgs::ToReg(dest, Arg64::Reg(dest))));
+            .push(Instruction::Xor(Operand::Reg(dest), Operand::Reg(dest)));
         self.instructions
-            .push(Instruction::Cmp(BinArgs::ToReg(r1, Arg64::Reg(r2))));
+            .push(Instruction::Cmp(Operand::Reg(r1), Operand::Reg(r2)));
         self.instructions.push(Instruction::Set(cc, dest));
         self.restore_if_spilled(Reg::R9, spill3, alloc, dst);
         self.restore_if_spilled(Reg::R8, spill2, alloc, vr2);
@@ -386,10 +358,10 @@ impl X86_64 {
         let dst = alloc.allocator.location(instr.dest);
         match instr.op {
             Operation::ConstInt(n) => {
-                self.store_dst(dst, Arg64::Unsigned(n));
+                self.store_dst(dst, Operand::Imm(n));
             }
             Operation::ConstBool(b) => {
-                self.store_dst(dst, Arg64::Unsigned(b as usize));
+                self.store_dst(dst, Operand::Imm(b as usize));
             }
             Operation::Add(vr1, vr2) => {
                 self.emit_binop(dst, vr1, vr2, alloc, Instruction::Add);
@@ -434,10 +406,10 @@ impl X86_64 {
                 for (arg, reg) in vrs.into_iter().zip(arg_regs) {
                     let loc = alloc.allocator.location(arg);
                     if let Some(loc) = loc {
-                        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                            reg,
-                            Arg64::Reg(Reg::from(loc)),
-                        )));
+                        self.instructions.push(Instruction::Mov(
+                            Operand::Reg(reg),
+                            Operand::Reg(Reg::from(loc)),
+                        ));
                     } else {
                         let offset = alloc.spilled.get(&arg).expect("vr must have been spilled");
                         let mem = MemRef {
@@ -445,12 +417,12 @@ impl X86_64 {
                             offset: *offset,
                         };
                         self.instructions
-                            .push(Instruction::Mov(MovArgs::ToReg(reg, Arg64::Mem(mem))));
+                            .push(Instruction::Mov(Operand::Reg(reg), Operand::Mem(mem)));
                     }
                 }
                 self.instructions.push(Instruction::Call(function.name));
                 self.pop_caller_regs(alloc);
-                self.store_dst(dst, Arg64::Reg(Reg::R15));
+                self.store_dst(dst, Operand::Reg(Reg::R15));
             }
         }
     }
@@ -467,10 +439,10 @@ impl X86_64 {
             Terminator::Exit(vr) => {
                 let reg = alloc.allocator.location(vr);
                 if let Some(r) = reg {
-                    self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                        Reg::Rdi,
-                        Arg64::Reg(Reg::from(r)),
-                    )));
+                    self.instructions.push(Instruction::Mov(
+                        Operand::Reg(Reg::Rdi),
+                        Operand::Reg(Reg::from(r)),
+                    ));
                 } else {
                     let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
                     let mem = MemRef {
@@ -478,22 +450,22 @@ impl X86_64 {
                         offset: *offset,
                     };
                     self.instructions
-                        .push(Instruction::Mov(MovArgs::ToReg(Reg::Rdi, Arg64::Mem(mem))));
+                        .push(Instruction::Mov(Operand::Reg(Reg::Rdi), Operand::Mem(mem)));
                 }
 
-                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                    Reg::Rax,
-                    Arg64::Unsigned(EXIT_SYSCALL),
-                )));
+                self.instructions.push(Instruction::Mov(
+                    Operand::Reg(Reg::Rax),
+                    Operand::Imm(EXIT_SYSCALL),
+                ));
                 self.instructions.push(Instruction::Syscall);
             }
             Terminator::Return(vr) => {
                 let reg = alloc.allocator.location(vr);
                 if let Some(r) = reg {
-                    self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                        Reg::R15,
-                        Arg64::Reg(Reg::from(r)),
-                    )));
+                    self.instructions.push(Instruction::Mov(
+                        Operand::Reg(Reg::R15),
+                        Operand::Reg(Reg::from(r)),
+                    ));
                 } else {
                     let offset = alloc.spilled.get(&vr).expect("vr must have been spilled");
                     let mem = MemRef {
@@ -501,13 +473,13 @@ impl X86_64 {
                         offset: *offset,
                     };
                     self.instructions
-                        .push(Instruction::Mov(MovArgs::ToReg(Reg::R15, Arg64::Mem(mem))));
+                        .push(Instruction::Mov(Operand::Reg(Reg::R15), Operand::Mem(mem)));
                 }
 
-                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                    Reg::Rsp,
-                    Arg64::Reg(Reg::Rbp),
-                )));
+                self.instructions.push(Instruction::Mov(
+                    Operand::Reg(Reg::Rsp),
+                    Operand::Reg(Reg::Rbp),
+                ));
                 self.instructions.push(Instruction::Pop(Reg::Rbp));
                 self.instructions.push(Instruction::Ret);
             }
@@ -520,7 +492,7 @@ impl X86_64 {
                     let (r1, _) = self.find_or_spill(*param, alloc, Reg::Rax);
                     let (r2, _) = self.find_or_spill(*arg, alloc, Reg::Rax);
                     self.instructions
-                        .push(Instruction::Mov(MovArgs::ToReg(r2, Arg64::Reg(r1))));
+                        .push(Instruction::Mov(Operand::Reg(r2), Operand::Reg(r1)));
                 }
 
                 self.instructions.push(Instruction::Jmp(label));
@@ -542,7 +514,7 @@ impl X86_64 {
                     let (r1, _) = self.find_or_spill(*param, alloc, Reg::Rax);
                     let (r2, _) = self.find_or_spill(*arg, alloc, Reg::Rax);
                     self.instructions
-                        .push(Instruction::Mov(MovArgs::ToReg(r2, Arg64::Reg(r1))));
+                        .push(Instruction::Mov(Operand::Reg(r2), Operand::Reg(r1)));
                 }
 
                 let t = &blocks[&else_target];
@@ -552,15 +524,15 @@ impl X86_64 {
                     let (r1, _) = self.find_or_spill(*param, alloc, Reg::Rax);
                     let (r2, _) = self.find_or_spill(*arg, alloc, Reg::Rax);
                     self.instructions
-                        .push(Instruction::Mov(MovArgs::ToReg(r2, Arg64::Reg(r1))));
+                        .push(Instruction::Mov(Operand::Reg(r2), Operand::Reg(r1)));
                 }
 
                 let r_cond = alloc.allocator.location(cond);
                 if let Some(reg) = r_cond {
-                    self.instructions.push(Instruction::Cmp(BinArgs::ToReg(
-                        Reg::from(reg),
-                        Arg64::Unsigned(0),
-                    )));
+                    self.instructions.push(Instruction::Cmp(
+                        Operand::Reg(Reg::from(reg)),
+                        Operand::Imm(0),
+                    ));
                 } else {
                     let offset = alloc.spilled.get(&cond).expect("vr must have been spilled");
                     let mem = MemRef {
@@ -568,7 +540,7 @@ impl X86_64 {
                         offset: *offset,
                     };
                     self.instructions
-                        .push(Instruction::Cmp(BinArgs::ToMem(mem, Arg64::Unsigned(0))));
+                        .push(Instruction::Cmp(Operand::Mem(mem), Operand::Imm(0)));
                 }
 
                 self.instructions.push(Instruction::Jne(then_label));
@@ -588,7 +560,7 @@ impl Target for X86_64 {
             Instruction::Directive("global".to_string(), "_start".to_string()),
             Instruction::Label("_start".to_string()),
             Instruction::Push(Reg::Rbp),
-            Instruction::Mov(MovArgs::ToReg(Reg::Rbp, Arg64::Reg(Reg::Rsp))),
+            Instruction::Mov(Operand::Reg(Reg::Rbp), Operand::Reg(Reg::Rsp)),
             Instruction::Call("main".to_string()),
         ]);
     }
@@ -605,24 +577,24 @@ impl Target for X86_64 {
         self.instructions
             .push(Instruction::Label(function.name.clone()));
         self.instructions.push(Instruction::Push(Reg::Rbp));
-        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-            Reg::Rbp,
-            Arg64::Reg(Reg::Rsp),
-        )));
+        self.instructions.push(Instruction::Mov(
+            Operand::Reg(Reg::Rbp),
+            Operand::Reg(Reg::Rsp),
+        ));
 
-        self.instructions.push(Instruction::Sub(BinArgs::ToReg(
-            Reg::Rsp,
-            Arg64::Unsigned(alloc.spilled.len() * WORD_SIZE),
-        )));
+        self.instructions.push(Instruction::Sub(
+            Operand::Reg(Reg::Rsp),
+            Operand::Imm(alloc.spilled.len() * WORD_SIZE),
+        ));
 
         let arg_regs = [Reg::Rbx, Reg::Rcx, Reg::Rdx, Reg::Rsi];
         for (p, reg) in function.params.iter().zip(arg_regs) {
             let loc = alloc.allocator.location(*p);
             if let Some(loc) = loc {
-                self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-                    Reg::from(loc),
-                    Arg64::Reg(reg),
-                )));
+                self.instructions.push(Instruction::Mov(
+                    Operand::Reg(Reg::from(loc)),
+                    Operand::Reg(reg),
+                ));
             } else {
                 let offset = alloc.spilled.get(p).expect("vr must have been spilled");
                 let mem = MemRef {
@@ -630,7 +602,7 @@ impl Target for X86_64 {
                     offset: *offset,
                 };
                 self.instructions
-                    .push(Instruction::Mov(MovArgs::ToMem(mem, Arg64::Reg(reg))));
+                    .push(Instruction::Mov(Operand::Mem(mem), Operand::Reg(reg)));
             }
         }
 
@@ -651,10 +623,10 @@ impl Target for X86_64 {
             self.translate_terminator(&function.name, block.terminator, &mut alloc, &blocks);
         }
 
-        self.instructions.push(Instruction::Mov(MovArgs::ToReg(
-            Reg::Rsp,
-            Arg64::Reg(Reg::Rbp),
-        )));
+        self.instructions.push(Instruction::Mov(
+            Operand::Reg(Reg::Rsp),
+            Operand::Reg(Reg::Rbp),
+        ));
         self.instructions.push(Instruction::Pop(Reg::Rbp));
         self.instructions.push(Instruction::Ret);
     }
