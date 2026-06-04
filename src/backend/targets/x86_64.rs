@@ -203,41 +203,40 @@ impl From<usize> for Reg {
     fn from(val: usize) -> Self {
         match val {
             0 => Reg::Rax,
-            // 1 => Reg::Rbx,
-            // 2 => Reg::Rcx,
-            // 3 => Reg::Rdx,
-            // 4 => Reg::Rsi,
-            1 => Reg::Rdi,
+            1 => Reg::Rbx,
+            2 => Reg::Rcx,
+            3 => Reg::Rdx,
+            4 => Reg::Rsi,
+            5 => Reg::Rdi,
             // 2 => Reg::Rbp,
-            2 => Reg::R8,
-            3 => Reg::R9,
-            4 => Reg::R10,
-            5 => Reg::R11,
-            6 => Reg::R12,
-            7 => Reg::R13,
-            8 => Reg::R14,
-            // 14 => Reg::R15,
+            6 => Reg::R8,
+            7 => Reg::R9,
+            8 => Reg::R10,
+            9 => Reg::R11,
+            10 => Reg::R12,
+            11 => Reg::R13,
+            12 => Reg::R14,
+            13 => Reg::R15,
             _ => unreachable!(),
         }
     }
 }
 
 const CALLEE_SAVED: &[Reg] = &[
-    // Reg::Rbx,
+    Reg::Rbx,
     Reg::Rbp,
     Reg::R12,
     Reg::R13,
     Reg::R14,
-    // Reg::R15,
+    Reg::R15,
     Reg::Rsp,
 ];
 
 const CALLER_SAVED: &[Reg] = &[
     Reg::Rax,
-    // Reg::Rbx,
-    // Reg::Rcx,
-    // Reg::Rdx,
-    // Reg::Rsi,
+    Reg::Rcx,
+    Reg::Rdx,
+    Reg::Rsi,
     Reg::Rdi,
     Reg::R8,
     Reg::R9,
@@ -415,8 +414,8 @@ impl X86_64 {
                         .push(Instruction::Mov(Operand::Reg(reg), operand));
                 }
                 self.instructions.push(Instruction::Call(function.name));
+                self.store_dst(dst, Operand::Reg(Reg::Rax), alloc);
                 self.pop_caller_regs(alloc);
-                self.store_dst(dst, Operand::Reg(Reg::R15), alloc);
             }
         }
     }
@@ -444,7 +443,7 @@ impl X86_64 {
             Terminator::Return(vr) => {
                 let operand = alloc.operand(vr);
                 self.instructions
-                    .push(Instruction::Mov(Operand::Reg(Reg::R15), operand));
+                    .push(Instruction::Mov(Operand::Reg(Reg::Rax), operand));
 
                 self.instructions.push(Instruction::Mov(
                     Operand::Reg(Reg::Rsp),
@@ -509,7 +508,7 @@ impl X86_64 {
 
 impl Target for X86_64 {
     fn num_gp_registers(&self) -> usize {
-        9
+        13
     }
 
     fn asm_header(&mut self) {
