@@ -2,7 +2,8 @@
 
 $$
 \begin{align}
-\text{program} &\to \text{[function]}^* \\
+\text{program} &\to (\text{[function] | [struct\_def]})^* \\
+\text{struct\_def} &\to struct \space \text{[ident] } \{ \text{[ident]: [type],}^+ \}; \\
 \text{function} &\to fn \space \text{[ident]}([\text{[ident]: }\text{[type]}]^*)\text{[ret\_signature]}\{\text{[scope]}\} \\
 \text{ret\_signature} &\to \space = \text[type] \\
 \text{stmt} &\to
@@ -21,6 +22,8 @@ $$
         \text{[bin\_expr]} \\
         \text{[term]} \\
         \text{[function\_call]} \\
+        \text{[struct\_lit]} \\
+        \text{[field]} \\
     \end{cases} \\
 \text{function\_call} &\to \text{[ident]}(\text{[expr]}^*)\\
 \text{bin\_expr} &\to
@@ -37,6 +40,8 @@ $$
         \text{[expr]} \space \&\& \space \text{[expr]} \\
         \text{[expr]} \space || \space \text{[expr]} \\
     \end{cases} \\
+\text{struct\_lit} &\to \text{[ident] \{ [ident] : [expr],}^* \} \\
+\text{field} &\to \text{[expr].[ident]}\\
 \text{scope} &\to \text{[stmt]}^* \\
 \text{else\_clause} &\to
     \begin{cases}
@@ -48,6 +53,7 @@ $$
     \begin{cases}
         int \\
         bool \\
+        \text{ident} \\
     \end{cases} \\
 \text{term} &\to
     \begin{cases}

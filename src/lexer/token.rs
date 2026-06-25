@@ -35,6 +35,8 @@ pub enum Token {
     Colon,
     Return,
     Comma,
+    Dot,
+    Struct,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, strum_macros::Display)]
@@ -76,6 +78,8 @@ pub enum TokenKind {
     Colon,
     Return,
     Comma,
+    Dot,
+    Struct,
 }
 
 impl Token {
@@ -142,6 +146,8 @@ impl Token {
             Token::Colon => TokenKind::Colon,
             Token::Return => TokenKind::Return,
             Token::Comma => TokenKind::Comma,
+            Token::Dot => TokenKind::Dot,
+            Token::Struct => TokenKind::Struct,
         }
     }
 }

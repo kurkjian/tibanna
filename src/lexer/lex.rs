@@ -130,6 +130,10 @@ impl<'a> Lexer<'a> {
                     iter.next();
                     tokens.push(Token::Comma);
                 }
+                '.' => {
+                    iter.next();
+                    tokens.push(Token::Dot);
+                }
 
                 char if char.is_whitespace() => {
                     iter.next();
@@ -176,6 +180,7 @@ impl<'a> Lexer<'a> {
             "int" => Token::Int,
             "bool" => Token::Bool,
             "return" => Token::Return,
+            "struct" => Token::Struct,
             _ => Token::Ident(ident),
         }
     }
@@ -244,6 +249,30 @@ mod tests {
                 Token::Equal,
                 Token::IntLit(420),
                 Token::Semi
+            ]
+        );
+    }
+
+    #[test]
+    fn test_struct_declaration() {
+        let input = "struct Point { x: int, y: int }";
+        let mut lexer = Lexer::new(input);
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Struct,
+                Token::Ident("Point".to_string()),
+                Token::OpenBrace,
+                Token::Ident("x".to_string()),
+                Token::Colon,
+                Token::Int,
+                Token::Comma,
+                Token::Ident("y".to_string()),
+                Token::Colon,
+                Token::Int,
+                Token::CloseBrace,
             ]
         );
     }

@@ -17,6 +17,7 @@ pub enum ParseError {
 pub struct Program {
     pub main: Option<Function>,
     pub functions: Vec<Function>,
+    pub type_defs: Vec<Struct>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -39,6 +40,19 @@ pub enum Type {
     Void,
     Int,
     Bool,
+    Def(Identifier), // user typedef
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Struct {
+    pub name: Identifier,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Field {
+    pub name: Identifier,
+    pub ty: Type,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -177,17 +191,66 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Program, ParseError> {
         let mut functions = Vec::new();
+        let mut type_defs = Vec::new();
         let mut main = None;
+
         while self.peek().is_some() {
-            let func = self.parse_function()?;
-            if func.name.name == "main" {
-                main = Some(func);
-            } else {
-                functions.push(func);
+            match self.peek() {
+                Some(Token::Struct) => {
+                    type_defs.push(self.parse_struct()?);
+                }
+                Some(Token::Fn) => {
+                    let func = self.parse_function()?;
+                    if func.name.name == "main" {
+                        main = Some(func);
+                    } else {
+                        functions.push(func);
+                    }
+                }
+                _ => {
+                    panic!("Unexpected token: {:?}", self.peek())
+                }
             }
         }
 
-        Ok(Program { main, functions })
+        Ok(Program {
+            main,
+            functions,
+            type_defs,
+        })
+    }
+
+    fn parse_struct(&mut self) -> Result<Struct, ParseError> {
+        self.parse_token(Token::Struct)?;
+        let struct_name = self.parse_ident()?;
+        self.parse_token(Token::OpenBrace)?;
+        let fields = self.parse_struct_fields()?;
+        self.parse_token(Token::CloseBrace)?;
+        self.parse_token(Token::Semi)?;
+
+        Ok(Struct {
+            name: struct_name,
+            fields,
+        })
+    }
+
+    fn parse_struct_fields(&mut self) -> Result<Vec<Field>, ParseError> {
+        let mut fields = Vec::new();
+        while self.peek() != Some(&Token::CloseBrace) {
+            let field_name = self.parse_ident()?;
+            self.parse_token(Token::Colon)?;
+            let field_type = self.parse_type()?;
+            fields.push(Field {
+                name: field_name,
+                ty: field_type,
+            });
+
+            if self.peek() == Some(&Token::Comma) {
+                self.inc();
+            }
+        }
+
+        Ok(fields)
     }
 
     fn parse_function(&mut self) -> Result<Function, ParseError> {
@@ -255,6 +318,7 @@ impl Parser {
         match next {
             Token::Int => Ok(Type::Int),
             Token::Bool => Ok(Type::Bool),
+            Token::Ident(ty) => Ok(Type::Def(Identifier { name: ty })),
             _ => Err(ParseError::UnexpectedToken(next, TokenKind::Type)),
         }
     }
@@ -529,7 +593,7 @@ impl TryFrom<Token> for Expression {
 
 #[cfg(test)]
 mod tests {
-    use crate::lexer::Lexer;
+    use crate::{lexer::Lexer, parser::Type::Int};
 
     use super::*;
 
@@ -584,6 +648,39 @@ mod tests {
                 ),
                 vec![let_("w", int(1))]
             )],
+        );
+    }
+
+    #[test]
+    fn test_struct_def() {
+        let mut parser = Parser::new(
+            Lexer::new("struct Point { x: int, y: int };")
+                .tokenize()
+                .unwrap(),
+        );
+        let program = parser.parse().unwrap();
+
+        assert_eq!(
+            program.type_defs[0],
+            Struct {
+                name: Identifier {
+                    name: "Point".to_string()
+                },
+                fields: vec![
+                    Field {
+                        name: Identifier {
+                            name: "x".to_string()
+                        },
+                        ty: Int,
+                    },
+                    Field {
+                        name: Identifier {
+                            name: "y".to_string()
+                        },
+                        ty: Int,
+                    }
+                ],
+            }
         );
     }
 
