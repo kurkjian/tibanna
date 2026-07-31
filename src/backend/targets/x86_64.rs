@@ -17,6 +17,9 @@ struct RegisterMap {
     allocator: Allocator,
     /// virtual register -> spilled offset from rbp
     spilled: HashMap<VirtualRegister, usize>,
+
+    block: BlockId,
+    instr: usize,
 }
 
 impl RegisterMap {
@@ -31,6 +34,23 @@ impl RegisterMap {
                 offset: *offset,
             })
         }
+    }
+
+    fn reg(&mut self, vr: VirtualRegister) -> Reg {
+        let loc = self.allocator.location(vr);
+        if let Some(reg) = loc {
+            Reg::from(reg)
+        } else {
+            panic!("Register is spilled")
+        }
+    }
+
+    fn set_block(&mut self, id: BlockId) {
+        self.block = id;
+    }
+
+    fn set_instr(&mut self, idx: usize) {
+        self.instr = idx;
     }
 }
 
@@ -295,24 +315,24 @@ impl X86_64 {
         self.instructions.push(Instruction::Mov(operand, value));
     }
 
-    fn save_caller_regs(&mut self, alloc: &RegisterMap) {
-        let mut used = alloc.allocator.used();
-        used.sort();
+    fn save_caller_regs(&mut self, alloc: &mut RegisterMap) {
+        let mut live = alloc.allocator.live_out(alloc.block, alloc.instr).iter().cloned().collect::<Vec<_>>();
+        live.sort();
 
-        for reg in used {
-            let r = Reg::from(reg);
+        for vr in live {
+            let r = alloc.reg(vr);
             if CALLER_SAVED.contains(&r) {
                 self.instructions.push(Instruction::Push(r));
             }
         }
     }
 
-    fn pop_caller_regs(&mut self, alloc: &RegisterMap) {
-        let mut used = alloc.allocator.used();
-        used.sort();
+    fn pop_caller_regs(&mut self, alloc: &mut RegisterMap) {
+        let mut live = alloc.allocator.live_out(alloc.block, alloc.instr).iter().cloned().collect::<Vec<_>>();
+        live.sort();
 
-        for reg in used.iter().rev() {
-            let r = Reg::from(*reg);
+        for vr in live.iter().rev() {
+            let r = alloc.reg(*vr);
             if CALLER_SAVED.contains(&r) {
                 self.instructions.push(Instruction::Pop(r));
             }
@@ -526,7 +546,7 @@ impl Target for X86_64 {
         for (i, vr) in allocator.spilled().iter().enumerate() {
             spilled.insert(*vr, (i + 1) * WORD_SIZE);
         }
-        let mut alloc = RegisterMap { allocator, spilled };
+        let mut alloc = RegisterMap { allocator, spilled, block: BlockId(0), instr: 0 };
 
         // TODO: callee/caller save registers
 
@@ -557,10 +577,12 @@ impl Target for X86_64 {
             .map(|b| (b.label, b))
             .collect();
         for block in function.blocks {
+            alloc.set_block(block.label.clone());
             let label = format!("{}_{}", function.name, block.label);
             self.instructions.push(Instruction::Label(label));
 
-            for instr in block.instructions {
+            for (idx, instr) in block.instructions.into_iter().enumerate() {
+                alloc.set_instr(idx);
                 self.translate_ir(instr, &mut alloc);
             }
 

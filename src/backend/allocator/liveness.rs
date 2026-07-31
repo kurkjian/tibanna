@@ -17,9 +17,16 @@ pub struct BlockLiveness {
     pub live_out: HashSet<VirtualRegister>,
 }
 
+#[derive(Debug, Clone)]
+pub struct InstructionLiveness {
+    pub live_before: HashSet<VirtualRegister>,
+    pub live_after: HashSet<VirtualRegister>,
+}
+
 #[derive(Debug)]
 pub struct Liveness {
     pub blocks: HashMap<BlockId, BlockLiveness>,
+    pub instr_liveness: HashMap<BlockId, Vec<InstructionLiveness>>
 }
 
 impl Instruction {
@@ -197,7 +204,52 @@ pub fn liveness(function: &TIRFunction) -> Liveness {
         }
     }
 
-    Liveness { blocks }
+    let mut i_liveness = HashMap::new();
+    for block in function.blocks.iter() {
+        let liveness = &blocks[&block.label];
+        let instr_liveness = instruction_liveness(block, liveness);
+
+        i_liveness.insert(block.label, instr_liveness);
+    }
+
+    Liveness { blocks, instr_liveness: i_liveness }
+}
+
+pub fn instruction_liveness(
+    block: &TIRBlock,
+    block_liveness: &BlockLiveness,
+) -> Vec<InstructionLiveness> {
+    let capacity = block.instructions.len() + 1;
+    let mut result = vec![
+        InstructionLiveness {
+            live_before: HashSet::new(),
+            live_after: HashSet::new(),
+        };
+        capacity
+    ];
+
+
+    let mut live = block_liveness.live_out.clone();
+    result[capacity - 1].live_after = live.clone();
+    let mut before = live.clone();
+    before.extend(block.terminator.uses().iter().cloned());
+    result[capacity - 1].live_before = before.clone();
+    live = before;
+
+    for (i, instr) in block.instructions.iter().enumerate().rev() {
+        let idx = block.instructions.len() - i - 1;
+        result[idx].live_after = live.clone();
+
+        // live_before = uses \union (live_after - defs)
+        let mut before = live.clone();
+        before.remove(&instr.def());
+        before.extend(instr.uses().iter().cloned());
+
+        result[idx].live_before = before.clone();
+        live = before;
+    }
+
+    result
 }
 
 #[cfg(test)]

@@ -30,7 +30,7 @@ pub struct Instruction {
     pub op: Operation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct VirtualRegister(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

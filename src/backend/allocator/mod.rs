@@ -2,12 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     backend::allocator::{
-        coalesce::coalesce_registers,
-        graph_color::{allocate_registers, create_interference_graph},
-        liveness::liveness,
-    },
-    common::uf::UnionFind,
-    ir::types::{TIRFunction, VirtualRegister},
+        coalesce::coalesce_registers, graph_color::{allocate_registers, create_interference_graph}, liveness::{Liveness, liveness},
+    }, common::uf::UnionFind, ir::types::{BlockId, TIRFunction, VirtualRegister},
 };
 
 pub mod coalesce;
@@ -21,6 +17,7 @@ pub struct Allocation {
 }
 
 pub struct Allocator {
+    liveness: Liveness,
     alloc: Allocation,
     uf: UnionFind<VirtualRegister>,
 }
@@ -29,9 +26,9 @@ impl Allocator {
     pub fn new(function: &TIRFunction, num_registers: usize) -> Self {
         let liveness = liveness(function);
         let mut uf = coalesce_registers(function);
-        let interference = create_interference_graph(function, liveness, &mut uf);
+        let interference = create_interference_graph(function, &liveness, &mut uf);
         let alloc = allocate_registers(interference, num_registers);
-        Self { alloc, uf }
+        Self { liveness, alloc, uf }
     }
 
     pub fn location(&mut self, reg: VirtualRegister) -> Option<usize> {
@@ -47,6 +44,10 @@ impl Allocator {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect::<Vec<_>>()
+    }
+
+    pub fn live_out(&self, id: BlockId, idx: usize) -> &HashSet<VirtualRegister> {
+        &self.liveness.instr_liveness[&id][idx].live_after
     }
 
     pub fn spilled(&self) -> &[VirtualRegister] {

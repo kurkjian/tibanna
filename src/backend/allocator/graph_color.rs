@@ -8,7 +8,7 @@ use crate::{
 
 pub fn create_interference_graph(
     function: &TIRFunction,
-    liveness: Liveness,
+    liveness: &Liveness,
     uf: &mut UnionFind<VirtualRegister>,
 ) -> Graph<VirtualRegister> {
     let mut graph = Graph::new();
@@ -249,7 +249,7 @@ mod tests {
 
         let l = liveness(&f);
         let mut uf = coalesce_registers(&f);
-        let g = create_interference_graph(&f, l, &mut uf);
+        let g = create_interference_graph(&f, &l, &mut uf);
 
         assert_eq!(
             g.edges(&VirtualRegister(0)).unwrap(),
